@@ -20,8 +20,10 @@ from trimesh import Trimesh
 from OCP.BRep import BRep_Tool, BRep_Builder
 from OCP.TopoDS import (TopoDS, TopoDS_Shape, TopoDS_Shell, TopoDS_Face,
                         TopoDS_Solid, TopoDS_CompSolid, TopoDS_Compound, TopoDS_Builder)
-from OCP.BRepBuilderAPI import BRepBuilderAPI_Sewing, BRepBuilderAPI_MakeFace
+from OCP.BRepBuilderAPI import BRepBuilderAPI_Sewing, BRepBuilderAPI_MakeFace, BRepBuilderAPI_MakeWire
 from OCP.BRepPrimAPI import BRepPrimAPI_MakePrism, BRepPrimAPI_MakeWedge
+from OCP.BRepOffsetAPI import BRepOffsetAPI_MakePipeShell
+from OCP.BRepAdaptor import BRepAdaptor_CompCurve
 from OCP.TopTools import TopTools_IndexedMapOfShape
 from OCP.TopExp import TopExp
 from OCP.Geom import Geom_Plane
@@ -478,6 +480,82 @@ class Solid(Shape):
         solid = Solid.make_extrusion(face=face, extrusion_length=extrusion_length)
 
         return cls(obj=solid.wrapped, name=name)
+
+    _transModeDict = {
+        "transformed": BRepBuilderAPI_Transformed,
+        "round": BRepBuilderAPI_RoundCorner,
+        "right": BRepBuilderAPI_RightCorner,
+    }
+
+    @staticmethod
+    def _set_sweep_mode(
+        builder: BRepOffsetAPI_MakePipeShell,
+        path: Union[wires.Wire3D, edges.Edge],
+        mode: Union[volmdlr.Vector3D, wires.Wire3D, edges.Edge],
+    ) -> bool:
+
+        rotate = False
+
+        if isinstance(mode, volmdlr.Vector3D):
+            ocp_frame = gp_Ax2()
+            curve = BRepAdaptor_CompCurve(path)
+            umin = curve.FirstParameter()
+            ocp_frame.SetLocation(curve.Value(umin))
+            ocp_frame.SetDirection(to_ocp.vector3d_to_ocp(mode, unit_vector=True))
+            builder.SetMode(ocp_frame)
+            rotate = True
+        elif isinstance(mode, (wires.Wire3D, edges.Edge)):
+            builder.SetMode(mode, True)
+
+        return rotate
+
+    @classmethod
+    def sweep(
+        cls,
+        face: vm_faces.Face3D,
+        path: Union[wires.Wire3D, edges.Edge],
+        make_solid: bool = True,
+        is_frenet: bool = False,
+        mode: Union[volmdlr.Vector3D, wires.Wire3D, edges.Edge, None] = None,
+        transition_mode: Literal["transformed", "round", "right"] = "transformed",
+    ) -> "Shape":
+        outer_wire = to_ocp.contour3d_to_ocp(contour3d=face.outer_contour3d)
+        inner_wires = [to_ocp.contour3d_to_ocp(contour3d=contour) for contour in face.inner_contours3d]
+
+        if isinstance(path, edges.Edge):
+            path = wires.Wire3D([path])
+
+        ocp_path = to_ocp.contour3d_to_ocp(path)
+
+        shapes = []
+        for wire in [outer_wire] + inner_wires:
+            builder = BRepOffsetAPI_MakePipeShell(ocp_path)
+
+            translate = False
+            rotate = False
+
+            # handle sweep mode
+            if mode:
+                rotate = cls._set_sweep_mode(builder, path, mode)
+            else:
+                builder.SetMode(is_frenet)
+
+            builder.SetTransitionMode(cls._transModeDict[transition_mode])
+
+            builder.Add(wire, translate, rotate)
+
+            builder.Build()
+            if make_solid:
+                builder.MakeSolid()
+
+            shapes.append(Shape.cast(builder.Shape()))
+
+        rv, inner_shapes = shapes[0], shapes[1:]
+
+        if inner_shapes:
+            rv = rv.cut(*inner_shapes)
+
+        return rv
 
 
 class CompSolid(Shape):
