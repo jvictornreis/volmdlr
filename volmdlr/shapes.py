@@ -454,9 +454,6 @@ class Solid(Shape):
 
     wrapped: TopoDS_Solid
 
-    def __init__(self, obj: TopoDS_Solid, name: str = '') -> None:
-        super().__init__(obj=obj, name=name)
-
     @property
     def primitives(self) -> List[Shell]:
         """
@@ -595,7 +592,7 @@ class Solid(Shape):
         return rotate
 
     @classmethod
-    def sweep(
+    def make_sweep(
         cls,
         face: vm_faces.Face3D,
         path: Union[wires.Wire3D, edges.Edge],
@@ -638,7 +635,7 @@ class Solid(Shape):
         rv, inner_shapes = shapes[0], shapes[1:]
 
         if inner_shapes:
-            rv = rv.cut(*inner_shapes)
+            rv = rv.subtraction(*inner_shapes)
 
         return rv
 

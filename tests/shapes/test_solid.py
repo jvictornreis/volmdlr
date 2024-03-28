@@ -2,7 +2,7 @@ import math
 import unittest
 
 import volmdlr
-from volmdlr import curves, faces, shapes, surfaces, wires
+from volmdlr import curves, faces, shapes, surfaces, wires, primitives3d
 
 
 class TestSolid(unittest.TestCase):
@@ -58,6 +58,22 @@ class TestSolid(unittest.TestCase):
                                         local_frame_x_direction=volmdlr.X3D)
 
         self.assertAlmostEqual(solid.volume(), (1 / 3) * dy * (1 + 0.5**2 + 0.5))
+
+    def test_sweep(self):
+        point1, point2 = volmdlr.Point3D(1.0, 1.0, 0.0), volmdlr.Point3D(1.0, 0.5, 0.0)
+        path = primitives3d.OpenRoundedLineSegments3D([point1, point2, volmdlr.Point3D(0.5, 0.5, 0.0)], {"1": 0.2})
+        section = wires.Contour2D.from_circle(curves.Circle2D(volmdlr.OXY, 0.05))
+        # section = section.to_3d(volmdlr.O3D, volmdlr.X3D, volmdlr.Y3D)
+        direction = (point2 - point1).unit_vector()
+        frame = volmdlr.Frame3D.from_point_and_vector(point=point1, vector=direction, main_axis=volmdlr.Z3D)
+        section = faces.PlaneFace3D(surface3d=surfaces.Plane3D(frame=frame),
+                                    surface2d=surfaces.Surface2D(outer_contour=section, inner_contours=[]))
+        sweep = shapes.Solid.make_sweep(section, path)
+        self.assertEqual(len(sweep.faces), 5)
+        for face, expected_face_class in zip(sweep.faces, [faces.PlaneFace3D, faces.CylindricalFace3D,
+                                                           faces.ToroidalFace3D, faces.CylindricalFace3D,
+                                                           faces.PlaneFace3D]):
+            self.assertTrue(isinstance(face, expected_face_class))
 
 
 if __name__ == '__main__':
