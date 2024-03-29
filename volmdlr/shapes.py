@@ -537,6 +537,13 @@ class Shell(Shape):
 
     @classmethod
     def from_faces(cls, faces, name: str = ''):
+        """
+        Creates a Shell from a list of faces.
+
+        :param faces: list of faces to create a shell.
+        :param name: name to be given to new shell.
+        :return: A new Shell object.
+        """
         return cls(obj=cls._from_faces(faces), name=name)
 
     @property
