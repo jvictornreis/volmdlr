@@ -546,18 +546,6 @@ class Shell(Shape):
         """
         return self.wrapped.Closed()
 
-    # @property
-    # def faces(self):
-    #     """Get shell's volmdlr faces."""
-    #     if not self._faces:
-    #         pass
-    #         # self._faces = [from_ocp. for face in self._get_faces(self.wrapped)]
-    #     return self._faces
-    #
-    # @faces.setter
-    # def faces(self, faces):
-    #     self._faces = faces
-
     @property
     def primitives(self) -> List[vm_faces.Face3D]:
         """
