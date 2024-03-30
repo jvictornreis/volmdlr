@@ -40,6 +40,8 @@ import volmdlr.utils.common_operations as vm_common_operations
 import volmdlr.utils.intersections as vm_utils_intersections
 from volmdlr.core import EdgeStyle
 from volmdlr.utils import step_writer
+
+
 # pylint: disable=arguments-differ
 
 
@@ -315,6 +317,7 @@ class Edge(dc.DessiaObject):
         :param edge2: other edge.
         :return: list containing the sections pairs to further search for intersections.
         """
+
         def edge3d_section_validator(line_seg1, line_seg2):
             return line_seg1.bounding_box.is_intersecting(line_seg2.bounding_box)
 
@@ -653,7 +656,7 @@ class Edge(dc.DessiaObject):
             end_content, end_id = self.end.to_step(start_id, vertex=False)
             current_id = end_id + 1
             curve_content = (f"#{current_id} = TRIMMED_CURVE('{self.name}',#{curve_id},"
-                        f"(#{start_id}),(#{end_id}),.T.,.CARTESIAN.);\n")
+                             f"(#{start_id}),(#{end_id}),.T.,.CARTESIAN.);\n")
         else:
             start_content, start_id = self.start.to_step(curve_id, vertex=True)
             end_content, end_id = self.end.to_step(start_id, vertex=True)
@@ -974,7 +977,6 @@ class BSplineCurve(Edge):
         self._control_points[0] = self.start
         self._control_points[-1] = self.end
         return self._control_points
-
 
     @property
     def ctrlpts(self):
@@ -2139,7 +2141,7 @@ class BSplineCurve(Edge):
         return curve1.merge_with(curve2)
 
     @staticmethod
-    def arc_to_nurbs(arc):
+    def arc_to_nurbs_parameters(arc):
         """
         Given an arc, return the parameters to form an equivalent NURBS line.
 
@@ -2151,27 +2153,22 @@ class BSplineCurve(Edge):
             number_of_arcs = 1
         elif arc.angle <= math.pi:
             number_of_arcs = 2
-        elif arc.angle <= (3 * 2) * math.pi:
+        elif arc.angle <= 1.5 * math.pi:
             number_of_arcs = 3
         else:
             number_of_arcs = 4
 
         individual_arc_angle = arc.angle / number_of_arcs
-        number_of_control_points = 2 * number_of_arcs + 1
         weight = math.cos(individual_arc_angle / 2)
-        control_points = []
-        weights = []
-        knots = []
-        knot_multiplicities = []
-        knots.insert(0, 0.)
-        knot_multiplicities.insert(0, 3)
-        control_points.insert(0, arc.start)
-        weights.insert(0, 1.)
+        control_points = [arc.start]
+        weights = [1.]
+        knots = [0.]
+        knot_multiplicities = [3]
 
         for i in range(number_of_arcs):
             common_control_point = arc.point_at_abscissa((i + 1) * individual_arc_angle * arc.radius)
-            vector_start = (control_points[i * 2] - arc.center).to_vector()
-            vector_end = (common_control_point - arc.center).to_vector()
+            vector_start = (control_points[i * 2] - arc.center)
+            vector_end = (common_control_point - arc.center)
             vector_control_point = (vector_end + vector_start) * (1 / (2 * math.cos(individual_arc_angle / 2) ** 2))
             control_points.insert(i * 2 + 1, arc.center + vector_control_point)
             control_points.insert(i * 2 + 2, common_control_point)
@@ -2179,12 +2176,26 @@ class BSplineCurve(Edge):
             weights.insert(i * 2 + 1, weight)
             weights.insert(i * 2 + 2, 1.)
 
-            knots.insert(i + 1, (i + 1) / number_of_arcs)
-            knot_multiplicities.insert(i + 1, 2)
+            if i != number_of_arcs - 1:
+                knots.insert(i + 1, (i + 1) / number_of_arcs)
+                knot_multiplicities.insert(i + 1, 2)
 
         knots.append(1.)
         knot_multiplicities.append(3)
-        return control_points, knots, knot_multiplicities, weights
+        return control_points, knot_multiplicities, knots, weights
+
+    @classmethod
+    def arc_to_nurbs(cls, arc):
+        """
+        Given an arc, return an equivalent NURBS line.
+
+        :param arc: 2D or 3D arc
+        :return: BSplineCurve2D or BSplineCurve3D
+        """
+        control_points, knot_multiplicities, knots, weights = cls.arc_to_nurbs_parameters(arc)
+        if isinstance(arc, Arc3D):
+            return BSplineCurve3D(2, control_points, knot_multiplicities, knots, weights)
+        return BSplineCurve2D(2, control_points, knot_multiplicities, knots, weights)
 
 
 class BSplineCurve2D(BSplineCurve):
@@ -3514,8 +3525,10 @@ class Arc2D(ArcMixin, Edge):
                                             theta2=theta2,
                                             color=edge_style.color,
                                             alpha=edge_style.alpha))
-        x_min, x_max = self.circle.center[0] - self.circle.radius*1.2, self.circle.center[0] + self.circle.radius*1.2
-        y_min, y_max = self.circle.center[1] - self.circle.radius*1.2, self.circle.center[1] + self.circle.radius*1.2
+        x_min, x_max = self.circle.center[0] - self.circle.radius * 1.2, self.circle.center[
+            0] + self.circle.radius * 1.2
+        y_min, y_max = self.circle.center[1] - self.circle.radius * 1.2, self.circle.center[
+            1] + self.circle.radius * 1.2
         ax.set_xlim(x_min, x_max)
         ax.set_ylim(y_min, y_max)
 
@@ -3838,6 +3851,7 @@ class FullArc2D(FullArcMixin, Arc2D):
 
 class ArcEllipseMixin:
     """Abstract class for ArcEllipses."""
+
     def get_shared_section(self, other_edge, abs_tol: float = 1e-6):
         """
         Gets the shared section between two arcs of ellipse.
@@ -3998,7 +4012,7 @@ class ArcEllipse2D(ArcEllipseMixin, Edge):
                              local_ellipse.ellipse.center.x) ** 2 / local_ellipse.ellipse.major_axis ** 2 +
                             (point_in_local_coords.y -
                              local_ellipse.ellipse.center.y) ** 2 / local_ellipse.ellipse.minor_axis ** 2,
-                            1, abs_tol=abs_tol) and\
+                            1, abs_tol=abs_tol) and \
                 not math.isclose((point_in_local_coords.x -
                                   local_ellipse.ellipse.center.x) ** 2 / local_ellipse.ellipse.minor_axis ** 2 +
                                  (point_in_local_coords.y -
@@ -4123,8 +4137,8 @@ class ArcEllipse2D(ArcEllipseMixin, Edge):
         """
         if self.angle >= math.pi:
             angle = volmdlr.TWO_PI - self.angle
-            area = math.pi * self.ellipse.major_axis * self.ellipse.minor_axis -\
-                0.5 * self.ellipse.major_axis * self.ellipse.minor_axis * (angle - math.sin(angle))
+            area = math.pi * self.ellipse.major_axis * self.ellipse.minor_axis - \
+                   0.5 * self.ellipse.major_axis * self.ellipse.minor_axis * (angle - math.sin(angle))
         else:
             angle = self.angle
             area = 0.5 * self.ellipse.major_axis * self.ellipse.minor_axis * (angle - math.sin(angle))
@@ -4441,7 +4455,7 @@ class FullArcEllipse(Edge):
         """
         new_point = self.ellipse.frame.global_to_local_coordinates(point)
         return math.isclose(round(new_point.x ** 2 / self.ellipse.major_axis ** 2 +
-                            new_point.y ** 2 / self.ellipse.minor_axis ** 2, 2), 1.0, abs_tol=abs_tol)
+                                  new_point.y ** 2 / self.ellipse.minor_axis ** 2, 2), 1.0, abs_tol=abs_tol)
 
     def get_reverse(self):
         """
@@ -4678,7 +4692,7 @@ class LineSegment3D(LineSegment):
         :return: a list with the intersection points.
         """
         intersection = self.line.intersection(linesegment.line)
-        if intersection and self.point_belongs(intersection, abs_tol=abs_tol) and\
+        if intersection and self.point_belongs(intersection, abs_tol=abs_tol) and \
                 linesegment.point_belongs(intersection, abs_tol=abs_tol):
             return [intersection]
         return []
@@ -4874,7 +4888,7 @@ class LineSegment3D(LineSegment):
         if not self.point_belongs(p1):
             p1 = self.start if self.start.point_distance(p1) < self.end.point_distance(p1) else self.end
         if not linesegment.point_belongs(p2):
-            p2 = linesegment.start if linesegment.start.point_distance(p2) <\
+            p2 = linesegment.start if linesegment.start.point_distance(p2) < \
                                       linesegment.end.point_distance(p2) else linesegment.end
         if return_points:
             return p1.point_distance(p2), p1, p2
@@ -4980,7 +4994,7 @@ class LineSegment3D(LineSegment):
             smaller_circle = volmdlr_curves.Circle2D(volmdlr.OXY, smaller_r)
             inner_contours2d = [volmdlr.wires.Contour2D(
                 smaller_circle.split_at_abscissa(smaller_circle.length() * 0.5))]
-        return [volmdlr.faces.PlaneFace3D(surface,  volmdlr.surfaces.Surface2D(outer_contour2d, inner_contours2d))]
+        return [volmdlr.faces.PlaneFace3D(surface, volmdlr.surfaces.Surface2D(outer_contour2d, inner_contours2d))]
 
     @staticmethod
     def _helper_plane_revolution_arcs_and_lines(surface, bigger_r, smaller_r, angle):
@@ -5094,7 +5108,7 @@ class LineSegment3D(LineSegment):
         line_min_distance_points = line.minimum_distance_points(self.line)
         if self.point_belongs(line_min_distance_points[1]):
             if return_points:
-                return line_min_distance_points[0].point_distance(line_min_distance_points[1]),\
+                return line_min_distance_points[0].point_distance(line_min_distance_points[1]), \
                     line_min_distance_points[0], line_min_distance_points[1]
             return line_min_distance_points[0].point_distance(line_min_distance_points[1])
         distance1 = line_min_distance_points[0].point_distance(self.start)
@@ -5592,7 +5606,7 @@ class BSplineCurve3D(BSplineCurve):
             points_3d.extend(poly.points)
 
         bspline_surface3d = volmdlr.surfaces.BSplineSurface3D.from_points_interpolation(points_3d, size_u,
-                                                                                       size_v,degree_u, degree_v)
+                                                                                        size_v, degree_u, degree_v)
 
         outer_contour = volmdlr.wires.Contour2D([volmdlr.edges.LineSegment2D(volmdlr.O2D, volmdlr.X2D.to_point()),
                                                  volmdlr.edges.LineSegment2D(
@@ -5980,6 +5994,7 @@ class Arc3D(ArcMixin, Edge):
         :param radius2: Radius of arc 2.
         :return: The squared distance function.
         """
+
         def distance_squared(x):
             return (u1_u1 * (np.cos(x[0])) ** 2 * radius1 ** 2 + u2_u2 * (np.sin(x[0])) ** 2 * radius1 ** 2
                     + w_w + u3_u3 * (np.cos(x[1])) ** 2 * radius2 ** 2 + u4_u4 * (np.sin(x[1])) ** 2 * radius2 ** 2
