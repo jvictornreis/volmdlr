@@ -155,6 +155,16 @@ def _make_revolve(
         axis: volmdlr.Vector3D,
         angle: float = 2 * math.pi,
 ) -> Union[TopoDS_Shell, TopoDS_Solid]:
+    """
+    Function to make revolved sweep topologies.
+
+    :param shape: A Wire3D or PlaneFace3D object representing the shape to be revolved.
+    :param axis_point: A Point3D object representing the point through which the axis of revolution passes.
+    :param axis: A Vector3D object representing the direction of the axis of revolution.
+    :param angle: A float representing the angle of revolution in radians. Default is 2*pi, which corresponds to a full
+     revolution.
+    :return: A TopoDS_Solid or TopoDS_Shell object resulting from the revolution operation.
+    """
     revolution_axis = gp_Ax1(to_ocp.point3d_to_ocp(axis_point), to_ocp.vector3d_to_ocp(axis, unit_vector=True))
     revol_builder = BRepPrimAPI_MakeRevol(
         shape.to_ocp(), revolution_axis, angle, True
@@ -683,6 +693,17 @@ class Shell(Shape):
             angle: float = 2 * math.pi,
             name: str = ""
     ) -> "Shell":
+        """
+        Revolves a 3D wire around a specified axis through a given angle to create a Shell object.
+
+        :param shape: A Wire3D to be revolved.
+        :param axis_point: A Point3D object representing the point through which the axis of revolution passes.
+        :param axis: A Vector3D object representing the direction of the axis of revolution.
+        :param angle: A float representing the angle of revolution in radians. Default is 2*pi, which corresponds to a
+         full revolution.
+        :param name: An optional string to name the Solid object.
+        :return: A TopoDS_Solid or TopoDS_Shell object resulting from the revolution operation.
+        """
         return cls(obj=_make_revolve(shape=shape, axis_point=axis_point, axis=axis, angle=angle),
                    name=name)
 
@@ -932,6 +953,17 @@ class Solid(Shape):
             angle: float = 2 * math.pi,
             name: str = ""
     ) -> "Solid":
+        """
+        Class method to create a Solid object by revolving a plane face around a specified axis through a given angle.
+
+        :param shape: A plane face to be revolved.
+        :param axis_point: A Point3D object representing the point through which the axis of revolution passes.
+        :param axis: A Vector3D object representing the direction of the axis of revolution.
+        :param angle: A float representing the angle of revolution in radians. Default is 2*pi, which corresponds to a
+         full revolution.
+        :param name: An optional string to name the Solid object.
+        :return: A TopoDS_Solid or TopoDS_Shell object resulting from the revolution operation.
+        """
         return cls(obj=_make_revolve(shape=shape, axis_point=axis_point, axis=axis, angle=angle),
                    name=name)
 
@@ -946,6 +978,19 @@ class Solid(Shape):
             angle: float = 2 * math.pi,
             name: str = ""
     ) -> "Solid":
+        """
+        Class method to create a Solid object by revolving a contour around a specified axis through a given angle.
+
+        :param frame: A Frame3D object representing the frame of the contour.
+        :param contour2d: A Contour2D object representing the contour to be revolved.
+        :param axis_point: A Point3D object representing the point through which the axis of revolution passes.
+        :param axis: A Vector3D object representing the direction of the axis of revolution.
+        :param inner_contours: An optional list of Contour2D objects representing the inner contours of the contour.
+        :param angle: A float representing the angle of revolution in radians. Default is 2*pi, which corresponds to a
+         full revolution.
+        :param name: An optional string to name the Solid object.
+        :return: A Solid object resulting from the revolution operation.
+        """
         if inner_contours is None:
             inner_contours = []
         face = vm_faces.PlaneFace3D(surface3d=surfaces.Plane3D(frame=frame),
