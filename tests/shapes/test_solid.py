@@ -1,10 +1,12 @@
 import os
-import unittest
 import math
+import unittest
+
 from dessia_common.core import DessiaObject
 
 import volmdlr
 from volmdlr import curves, faces, shapes, surfaces, wires, primitives3d
+
 
 folder = os.path.join(os.path.dirname(os.path.realpath(__file__)))
 objects_folder = os.path.join(os.path.dirname(os.path.realpath(__file__)), "shapes_objects")
@@ -39,15 +41,15 @@ class TestSolid(unittest.TestCase):
         self.assertEqual(from_brep, self.solid1)
 
     def test_union(self):
-        union = self.solid1.union(self.solid2)
+        union = self.solid1.union(self.solid2)[0]
         self.assertAlmostEqual(union.volume(), 15)
 
     def test_subtraction(self):
-        subtraction = self.solid1.subtraction(self.solid2)
+        subtraction = self.solid1.subtraction(self.solid2)[0]
         self.assertAlmostEqual(subtraction.volume(), 7.0)
 
     def test_intersection(self):
-        intersection = self.solid1.intersection(self.solid2)
+        intersection = self.solid1.intersection(self.solid2)[0]
         self.assertAlmostEqual(intersection.volume(), 1.0)
 
     def test_box(self):
@@ -97,7 +99,7 @@ class TestSolid(unittest.TestCase):
                                         local_frame_direction=-volmdlr.Y3D,
                                         local_frame_x_direction=volmdlr.X3D)
 
-        self.assertAlmostEqual(solid.volume(), (1 / 3) * dy * (1 + 0.5**2 + 0.5))
+        self.assertAlmostEqual(solid.volume(), (1 / 3) * dy * (1 + 0.5 ** 2 + 0.5))
 
     def test_sweep(self):
         point1, point2 = volmdlr.Point3D(1.0, 1.0, 0.0), volmdlr.Point3D(1.0, 0.5, 0.0)
@@ -109,7 +111,7 @@ class TestSolid(unittest.TestCase):
         frame = volmdlr.Frame3D.from_point_and_vector(point=point1, vector=direction, main_axis=volmdlr.Z3D)
         section = faces.PlaneFace3D(surface3d=surfaces.Plane3D(frame=frame),
                                     surface2d=surfaces.Surface2D(outer_contour=outer_contour, inner_contours=inner_contours))
-        sweep = shapes.Solid.make_sweep_from_contour(section, path, inner_contours)
+        sweep = shapes.Solid.make_sweep_from_contour(outer_contour, path, inner_contours)
         self.assertEqual(len(sweep.primitives[0].primitives), 8)
 
         path = wires.Wire3D.from_points([point1, point2, point3])

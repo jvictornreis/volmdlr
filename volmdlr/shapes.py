@@ -20,6 +20,11 @@ from OCP.BRepBuilderAPI import (BRepBuilderAPI_Sewing, BRepBuilderAPI_Copy, BRep
 from OCP.BRepAdaptor import (
     BRepAdaptor_CompCurve
 )
+from OCP.BRepBuilderAPI import BRepBuilderAPI_Sewing, BRepBuilderAPI_MakeFace, BRepBuilderAPI_Copy
+from OCP.BRepPrimAPI import BRepPrimAPI_MakePrism, BRepPrimAPI_MakeWedge
+from OCP.TopTools import TopTools_IndexedMapOfShape
+from OCP.TopExp import TopExp
+from OCP.Geom import Geom_Plane
 from OCP.Bnd import Bnd_Box
 from OCP.BRepBndLib import BRepBndLib
 from OCP.BRepMesh import BRepMesh_IncrementalMesh
@@ -235,7 +240,7 @@ def _make_sweep(
     if inner_shapes:
         swept_shape = swept_shape.subtraction(*inner_shapes)
 
-    return swept_shape
+    return swept_shape[0]
 
 
 class Shape(volmdlr.core.Primitive3D):
@@ -243,7 +248,7 @@ class Shape(volmdlr.core.Primitive3D):
     Represents a shape in the system. Wraps TopoDS_Shape.
     """
     _non_serializable_attributes = ["obj"]
-    _non_data_eq_attributes = ["wrapped"]
+    _non_data_eq_attributes = ['wrapped', 'name', 'color', 'alpha']
     wrapped: TopoDS_Shape
 
     def __init__(self, obj: TopoDS_Shape, name: str = ""):
@@ -302,21 +307,21 @@ class Shape(volmdlr.core.Primitive3D):
         """Gets shape's faces, if there exists any."""
         return [downcast(i) for i in self._entities(obj=self.wrapped, topo_type="Face")]
 
-    def get_shells(self) -> List["Shell"]:
+    def _get_shells(self) -> List["Shell"]:
         """
         :returns: All the shells in this Shape.
         """
 
         return [Shell(obj=i) for i in self._entities(obj=self.wrapped, topo_type="Shell")]
 
-    def get_solids(self) -> List["Solid"]:
+    def _get_solids(self) -> List["Solid"]:
         """
         :returns: All the solids in this Shape.
         """
 
         return [Solid(obj=i) for i in self._entities(obj=self.wrapped, topo_type="Solid")]
 
-    def get_compsolids(self) -> List["CompSolid"]:
+    def _get_compsolids(self) -> List["CompSolid"]:
         """
         :returns: All the compsolids in this Shape.
         """
@@ -350,7 +355,7 @@ class Shape(volmdlr.core.Primitive3D):
         #     print(True)
 
         if cls.__name__ in ["Shell", "Solid", "CompSolid"]:
-            return getattr(shape, f"get_{cls.__name__.lower()}s")()[0]
+            return getattr(shape, f"_get_{cls.__name__.lower()}s")()[0]
         return shape
 
     @classmethod
@@ -438,15 +443,16 @@ class Shape(volmdlr.core.Primitive3D):
         BRepGProp.VolumeProperties_s(self.wrapped, prop, tol)
         return abs(prop.Mass())
 
-    @staticmethod
     def _bool_op(
+            self,
             args: Iterable["Shape"],
             tools: Iterable["Shape"],
             operation: Union[BRepAlgoAPI_BooleanOperation, BRepAlgoAPI_Splitter],
             parallel: bool = True,
     ) -> "TopoDS_Shell":
         """
-        Generic boolean operation
+        Generic boolean operation.
+
         :param parallel: Sets the SetRunParallel flag, which enables parallel execution of boolean\
         operations in OCC kernel.
         """
@@ -464,8 +470,8 @@ class Shape(volmdlr.core.Primitive3D):
 
         operation.SetRunParallel(parallel)
         operation.Build()
-
-        return operation.Shape()
+        shape = self.__class__(operation.Shape())
+        return getattr(shape, f"_get_{self.__class__.__name__.lower()}s")()
 
     def subtraction(self, *to_subtract: "Shape", tol: Optional[float] = None) -> "Shape":
         """
@@ -479,25 +485,23 @@ class Shape(volmdlr.core.Primitive3D):
         if tol:
             cut_op.SetFuzzyValue(tol)
 
-        return self.__class__(self._bool_op((self,), to_subtract, cut_op))
+        return self._bool_op((self,), to_subtract, cut_op)
 
     def union(self, *to_union: "Shape", glue: bool = False, tol: Optional[float] = None):
         """
         Fuse the positional arguments with this Shape.
+        
         :param glue: Sets the glue option for the algorithm, which allows
             increasing performance of the intersection of the input shapes
         :param tol: Fuzzy mode tolerance
         """
-
         fuse_op = BRepAlgoAPI_Fuse()
         if glue:
             fuse_op.SetGlue(BOPAlgo_GlueEnum.BOPAlgo_GlueShift)
         if tol:
             fuse_op.SetFuzzyValue(tol)
 
-        union = self._bool_op((self,), to_union, fuse_op)
-
-        return self.__class__(union)
+        return self._bool_op((self,), to_union, fuse_op)
 
     def intersection(self, *to_intersect: "Shape", tol: Optional[float] = None) -> "Shape":
         """
@@ -511,28 +515,40 @@ class Shape(volmdlr.core.Primitive3D):
         if tol:
             intersect_op.SetFuzzyValue(tol)
 
-        return self.__class__(self._bool_op((self,), to_intersect, intersect_op))
+        return self._bool_op((self,), to_intersect, intersect_op)
 
     def plot(self, ax=None, edge_style=volmdlr.core.EdgeStyle()):
+        """Plots a shape using matplolib."""
         shape_edges = self._get_edges()
         for edge in shape_edges:
             ax = plot_edge(edge, ax, edge_style)
         return ax
 
     def volmdlr_primitives(self):
+        """Gets shape's volmdlr primitives."""
         return [self]
 
     def mesh(self, tolerance: float, angular_tolerance: float = 0.1):
         """
         Generate triangulation if none exists.
         """
-
         if not BRepTools.Triangulation_s(self.wrapped, tolerance):
             BRepMesh_IncrementalMesh(self.wrapped, tolerance, True, angular_tolerance)
 
-    def tessellate(
-            self, tolerance: float, angular_tolerance: float = 0.1
-    ) -> [NDArray[float], List[Tuple[int, int, int]]]:
+    def tessellate(self, tolerance: float, angular_tolerance: float = 0.1) ->\
+            [NDArray[float],  List[Tuple[int, int, int]]]:
+        """
+        Tessellates the geometry into vertices and triangles.
+
+        :param tolerance: (float) - Tolerance value for meshing.
+        :param angular_tolerance: (float, optional) - Angular tolerance value. Defaults to 0.1.
+
+        :return: Tuple[List[List[float]], List[Tuple[int, int, int]]]: A tuple containing:
+                - A list of vertices represented as lists of floats,
+                where each sublist represents the (x, y, z) coordinates of a vertex.
+                - A list of triangles represented as tuples of integers,
+                where each tuple contains the indices of the vertices forming a triangle.
+        """
 
         self.mesh(tolerance, angular_tolerance)
 
@@ -544,41 +560,29 @@ class Shape(volmdlr.core.Primitive3D):
             loc = TopLoc_Location()
             poly = BRep_Tool.Triangulation_s(face, loc)
             trsf = loc.Transformation()
-            reverse = (
-                True
-                if face.Orientation() == TopAbs_Orientation.TopAbs_REVERSED
-                else False
-            )
+            reverse = face.Orientation() == TopAbs_Orientation.TopAbs_REVERSED
 
             # add vertices
             vertices += [
-                [v.X(), v.Y(), v.Z()]
-                for v in (
-                    poly.Node(i).Transformed(trsf) for i in range(1, poly.NbNodes() + 1)
-                )
+                [v.X(), v.Y(), v.Z()] for v in (poly.Node(i).Transformed(trsf) for i in range(1, poly.NbNodes() + 1))
             ]
 
             # add triangles
             triangles += [
-                (
-                    triangle.Value(1) + offset - 1,
-                    triangle.Value(3) + offset - 1,
-                    triangle.Value(2) + offset - 1,
-                )
-                if reverse
-                else (
-                    triangle.Value(1) + offset - 1,
-                    triangle.Value(2) + offset - 1,
-                    triangle.Value(3) + offset - 1,
-                )
+                (triangle.Value(1) + offset - 1, triangle.Value(3) + offset - 1, triangle.Value(2) + offset - 1)
+                if reverse else
+                (triangle.Value(1) + offset - 1, triangle.Value(2) + offset - 1, triangle.Value(3) + offset - 1)
                 for triangle in poly.Triangles()
             ]
-
             offset += poly.NbNodes()
 
         return vertices, triangles
 
     def triangulation(self):
+        """
+        Gets shape triagulation.
+
+        """
         vertices, triangles = self.tessellate(tolerance=1e-2)
         mesh = display.Mesh3D(np.array(vertices), np.array(triangles))
         return mesh
@@ -594,10 +598,8 @@ class Shape(volmdlr.core.Primitive3D):
         babylon_mesh = mesh.to_babylon()
         babylon_mesh.update({
             'alpha': self.alpha,
-            # 'alpha': 1.0,
             'name': self.name,
             'color': list(self.color) if self.color is not None else [0.8, 0.8, 0.8]
-            # 'color': [0.8, 0.8, 0.8]
         })
         babylon_mesh["reference_path"] = self.reference_path
         return [babylon_mesh]
@@ -832,6 +834,98 @@ class Solid(Shape):
         return cls(ShapeFix_Solid().SolidFromShell(shell.wrapped))
 
     @classmethod
+    def make_wedge(cls,
+                   dx: float,
+                   dy: float,
+                   dz: float,
+                   xmin: float,
+                   zmin: float,
+                   xmax: float,
+                   zmax: float,
+                   local_frame_origin: volmdlr.Point3D = volmdlr.O3D,
+                   local_frame_direction: volmdlr.Vector3D = volmdlr.Z3D,
+                   local_frame_x_direction: volmdlr.Vector3D = volmdlr.X3D,
+                   ) -> "Solid":
+        """
+        Creates a wedge, which can represent a pyramid or a truncated pyramid.
+
+        The origin of the local coordinate system is the corner of the base rectangle of the wedge.
+        The y-axis represents the "height" of the pyramid or truncated pyramid.
+
+        To create a pyramid, specify xmin=xmax=dx/2 and zmin=zmax=dz/2.
+
+        :param dx: The length of the base rectangle along the x-axis.
+        :type dx: float
+        :param dy: The height of the pyramid or truncated pyramid along the y-axis.
+        :type dy: float
+        :param dz: The width of the base rectangle along the z-axis.
+        :type dz: float
+        :param xmin: The x-coordinate of one corner of the top rectangle.
+        :type xmin: float
+        :param zmin: The z-coordinate of one corner of the top rectangle.
+        :type zmin: float
+        :param xmax: The x-coordinate of the opposite corner of the top rectangle.
+        :type xmax: float
+        :param zmax: The z-coordinate of the opposite corner of the top rectangle.
+        :type zmax: float
+        :param local_frame_origin: The origin of the local coordinate system for the wedge.
+         Defaults to the origin (0, 0, 0).
+        :type local_frame_origin: volmdlr.Point3D
+        :param local_frame_direction: The main direction for the local coordinate system of the wedge.
+         Defaults to the z-axis (0, 0, 1).
+        :type local_frame_direction: volmdlr.Vector3D
+        :param local_frame_x_direction: The x direction for the local coordinate system of the wedge.
+         Defaults to the x-axis (1, 0, 0).
+        :type local_frame_x_direction: volmdlr.Vector3D
+
+        :return: The created wedge.
+        :rtype: Solid
+
+        Example:
+        To create a pyramid with a square base of size 1 and where its apex is located at
+        volmdlr.Point3D(0.0, 0.0, 2.0):
+        >>> dx, dy, dz = 1, 2, 1
+        >>> wedge = Solid.make_wedge(dx=dx, dy=dy, dz=dz, xmin=dx / 2, xmax=dx / 2, zmin=dz / 2, zmax=dz / 2,
+        >>>                                 local_frame_origin=volmdlr.Point3D(-0.5, 0.5, 0.0),
+        >>>                                 local_frame_direction=-volmdlr.Y3D,
+        >>>                                 local_frame_x_direction=volmdlr.X3D)
+
+        """
+
+        return cls(obj=_make_wedge(dx=dx, dy=dy, dz=dz, xmin=xmin, zmin=zmin, xmax=xmax, zmax=zmax,
+                                   point=local_frame_origin,
+                                   direction=local_frame_direction,
+                                   x_direction=local_frame_x_direction).Solid())
+
+    @classmethod
+    def make_extrusion(cls, face: Union[vm_faces.PlaneFace3D, Geom_Plane],
+                       extrusion_length: float, name: str = '') -> "Solid":
+        """
+        Returns a solid generated by the extrusion of a plane face.
+        """
+        ocp_face = face
+        if isinstance(ocp_face, vm_faces.Face3D):
+            ocp_face = face.to_ocp()
+        extrusion_vector = to_ocp.vector3d_to_ocp(face.surface3d.frame.w * extrusion_length)
+        solid = BRepPrimAPI_MakePrism(ocp_face, extrusion_vector)
+        return cls(obj=solid.Shape(), name=name)
+
+    @classmethod
+    def make_extrusion_from_frame_and_wires(cls, frame: volmdlr.Frame3D,
+                                            outer_contour2d: volmdlr.wires.Contour2D,
+                                            inner_contours2d: List[volmdlr.wires.Contour2D],
+                                            extrusion_length: float, name: str = '') -> "Solid":
+        """
+        Returns a solid generated by the extrusion of a plane face.
+        """
+        face = vm_faces.PlaneFace3D(surface3d=surfaces.Plane3D(frame),
+                                    surface2d=surfaces.Surface2D(outer_contour2d, inner_contours2d))
+
+        solid = Solid.make_extrusion(face=face, extrusion_length=extrusion_length)
+
+        return cls(obj=solid.wrapped, name=name)
+
+    @classmethod
     def make_box(
             cls,
             length: float,
@@ -843,7 +937,7 @@ class Solid(Shape):
         """
         Make a box located in point with the dimensions (length,width,height).
 
-        By default, pnt=Vector(0,0,0) and dir=Vector(0,0,1).
+        By default, pnt=volmdlr.Point3D(0,0,0) and dir=volmdlr.Vector3D(0,0,1).
         """
         frame = volmdlr.Frame3D.from_point_and_normal(point, direction)
         return cls(
@@ -863,9 +957,9 @@ class Solid(Shape):
             angle_degrees: float = 360,
     ) -> "Solid":
         """
-        Make a cone with given radii and height
-        By default pnt=Vector(0,0,0),
-        dir=Vector(0,0,1) and angle=360
+        Make a cone with given radii and height.
+
+        By default, pnt=volmdlr.Point3D(0,0,0), dir=volmdlr.Vector3D(0,0,1) and angle=360.
         """
         frame = volmdlr.Frame3D.from_point_and_normal(point, direction)
         return cls(
@@ -912,7 +1006,7 @@ class Solid(Shape):
         """
         Make a torus with a given radii and angles.
 
-        By default, point=Vector3D(0,0,0),direction=Vector3D(0,0,1),angle1=0
+        By default, point=volmdlr.Point3D(0,0,0),direction=volmdlr.Vector3D(0,0,1),angle1=0
         ,angle1=360 and angle=360.
         """
         frame = volmdlr.Frame3D.from_point_and_normal(point, direction)
@@ -939,7 +1033,7 @@ class Solid(Shape):
         """
         Make a sphere with a given radius.
 
-        By default, point=Vector3D(0,0,0),direction=Vector3D(0,0,1), angle1=0, angle2=90 and angle3=360
+        By default, point=volmdlr.Point3D(0,0,0),direction=volmdlr.Vector3D(0,0,1), angle1=0, angle2=90 and angle3=360
         """
         frame = volmdlr.Frame3D.from_point_and_normal(point, direction)
         return cls(
