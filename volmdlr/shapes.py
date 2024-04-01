@@ -150,8 +150,9 @@ def _make_loft(sections: List[Union[wires.Contour3D, volmdlr.Point3D]],
      If True, the loft will generate a ruled surface (straight lines) between each pair of sections.
     :return: A TopoDS_Solid or TopoDS_Shell object representing the lofted shape.
 
-    Raises:
+    Raises
         ValueError: If less than two sections are provided.
+
     """
     if len(sections) < 2:
         raise ValueError("More than one wire is required")
@@ -698,8 +699,9 @@ class Shell(Shape):
         :param name: An optional string to name the solid.
         :return: A Shell object representing the lofted shape.
 
-        Raises:
+        Raises
             ValueError: If less than two sections are provided.
+
         """
 
         return cls(obj=_make_loft(sections=sections, solid=False, ruled=ruled), name=name)
@@ -956,8 +958,9 @@ class Solid(Shape):
         :param name: An optional string to name the solid.
         :return: A Solid object representing the lofted shape.
 
-        Raises:
+        Raises
             ValueError: If less than two sections are provided.
+
         """
 
         return cls(obj=_make_loft(sections=sections, solid=True, ruled=ruled), name=name)
