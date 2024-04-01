@@ -185,7 +185,7 @@ def _make_sweep(
         transition_mode: Literal["transformed", "round", "right"] = "transformed",
 ) -> Union["Shell", "Solid"]:
     """
-    This private method sweeps a plane face along a provided path to create a solid or shell.
+    Sweeps a plane face along a provided path to create a solid or shell.
 
     :param face: A PlaneFace3D object representing the face to be swept.
     :param path: A Wire3D or Edge object representing the path along which the face is to be swept.
