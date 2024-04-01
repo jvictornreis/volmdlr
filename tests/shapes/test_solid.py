@@ -1,9 +1,11 @@
 import os
 import math
 import unittest
+from OCP.TopoDS import TopoDS_Solid
 from dessia_common.core import DessiaObject
 import volmdlr
 from volmdlr import faces, surfaces, shapes, wires, curves
+from volmdlr.models.contours import rim_contour, w, wb, R, Rb, th
 
 folder = os.path.join(os.path.dirname(os.path.realpath(__file__)))
 objects_folder = os.path.join(os.path.dirname(os.path.realpath(__file__)), "shapes_objects")
@@ -33,8 +35,8 @@ class TestSolid(unittest.TestCase):
         self.assertEqual(dict_to_obejct, self.solid1)
 
     def test_to_brep_from_brep(self):
-        self.solid1.to_brep(objects_folder+"/test_to_brep.brep")
-        from_brep = shapes.Solid.from_brep(objects_folder+"/test_to_brep.brep")
+        self.solid1.to_brep(objects_folder + "/test_to_brep.brep")
+        from_brep = shapes.Solid.from_brep(objects_folder + "/test_to_brep.brep")
         self.assertEqual(from_brep, self.solid1)
 
     def test_union(self):
@@ -48,7 +50,7 @@ class TestSolid(unittest.TestCase):
     def test_intersection(self):
         intersection = self.solid1.intersection(self.solid2)[0]
         self.assertAlmostEqual(intersection.volume(), 1.0)
-    
+
     def test_make_extrusion(self):
         length, width, height, radius = 0.4, 0.3, 0.08, 0.1
         outer_contour2d = wires.Contour2D.rectangle_from_center_and_sides(volmdlr.O2D, x_length=length, y_length=width,
@@ -78,7 +80,7 @@ class TestSolid(unittest.TestCase):
 
     def test_box(self):
         box = shapes.Solid.make_box(length=2, width=3, height=5)
-        self.assertEqual(box.volume(), 2*3*5)
+        self.assertEqual(box.volume(), 2 * 3 * 5)
 
     def test_cone(self):
         cone = shapes.Solid.make_cone(radius1=0, radius2=5, height=5, direction=volmdlr.X3D, angle_degrees=270)
@@ -97,6 +99,22 @@ class TestSolid(unittest.TestCase):
         torus1 = shapes.Solid.make_torus(radius1=2, radius2=.5, direction=volmdlr.X3D, angle_degrees1=0,
                                          angle_degrees2=360)
         self.assertAlmostEqual(torus1.volume(), 9.869604401089358)
+
+    def test_make_revolve(self):
+        inner_contours = [wires.Contour2D.from_circle(
+            curves.Circle2D.from_center_and_radius(volmdlr.Point2D(-0.5 * (w - wb), Rb - 0.15 * (Rb - (R - th))),
+                                                   radius=0.5 * th))]
+        y = volmdlr.X3D.random_unit_normal_vector()
+        z = volmdlr.X3D.cross(y)
+        axis_point = 0.5 * volmdlr.X3D.to_point()
+        frame = volmdlr.Frame3D(axis_point, volmdlr.X3D, z, y)
+        revolution_shape = shapes.Solid.make_revolve_from_contour(frame=frame, contour2d=rim_contour,
+                                                                  axis_point=axis_point, axis=volmdlr.X3D,
+                                                                  inner_contours=inner_contours,
+                                                                  angle=3.1415, name="Conical rim")
+        self.assertEqual(revolution_shape.name, "Conical rim")
+        self.assertEqual(len(revolution_shape.primitives[0].primitives), 11)
+        self.assertIsInstance(revolution_shape.wrapped, TopoDS_Solid)
 
 
 if __name__ == '__main__':
