@@ -2,38 +2,29 @@
 import base64
 # pylint: disable=no-name-in-module
 import math
-import random
-import warnings
+import sys
 import zlib
 from io import BytesIO
-from itertools import chain, product
 from typing import Iterable, List, Tuple, Union, Optional, Any, Dict, overload, Literal, cast as tcast
 
-import matplotlib.pyplot as plt
-import networkx as nx
 import numpy as np
-from dessia_common.core import DessiaObject, PhysicalObject
+from dessia_common.files import BinaryFile
 from dessia_common.typings import JsonSerializable
 from numpy.typing import NDArray
-from trimesh import Trimesh
 
 from OCP.BRep import BRep_Tool, BRep_Builder
 from OCP.TopoDS import (TopoDS, TopoDS_Shape, TopoDS_Shell, TopoDS_Face,
                         TopoDS_Solid, TopoDS_CompSolid, TopoDS_Compound, TopoDS_Builder)
-from OCP.BRepBuilderAPI import (BRepBuilderAPI_Sewing, BRepBuilderAPI_MakeFace, BRepBuilderAPI_MakeWire,
-                                BRepBuilderAPI_Transformed, BRepBuilderAPI_RoundCorner, BRepBuilderAPI_RightCorner)
-from OCP.BRepPrimAPI import BRepPrimAPI_MakePrism, BRepPrimAPI_MakeWedge
-from OCP.BRepOffsetAPI import BRepOffsetAPI_MakePipeShell
-from OCP.BRepAdaptor import BRepAdaptor_CompCurve
-from OCP.TopTools import TopTools_IndexedMapOfShape
-from OCP.TopExp import TopExp
-from OCP.Geom import Geom_Plane
+from OCP.BRepBuilderAPI import (BRepBuilderAPI_Sewing, BRepBuilderAPI_Copy, BRepBuilderAPI_Transformed,
+                                BRepBuilderAPI_RoundCorner, BRepBuilderAPI_RightCorner)
+from OCP.BRepAdaptor import (
+    BRepAdaptor_CompCurve
+)
 from OCP.Bnd import Bnd_Box
 from OCP.BRepBndLib import BRepBndLib
 from OCP.BRepMesh import BRepMesh_IncrementalMesh
 from OCP.GProp import GProp_PGProps
 from OCP.BRepGProp import BRepGProp
-from OCP.BRepExtrema import BRepExtrema_DistShapeShape
 from OCP.BRepAlgoAPI import (BRepAlgoAPI_Fuse, BRepAlgoAPI_BooleanOperation, BRepAlgoAPI_Splitter,
                              BRepAlgoAPI_Cut, BRepAlgoAPI_Common)
 from OCP.BOPAlgo import BOPAlgo_GlueEnum, BOPAlgo_PaveFiller
@@ -42,26 +33,39 @@ from OCP.ShapeFix import ShapeFix_Solid
 from OCP.BRepTools import BRepTools
 from OCP.TopTools import TopTools_IndexedMapOfShape
 from OCP.TopExp import TopExp
-from OCP.gp import gp_Ax2
+from OCP.BRepPrimAPI import (
+    BRepPrimAPI_MakeBox,
+    BRepPrimAPI_MakeCone,
+    BRepPrimAPI_MakeCylinder,
+    BRepPrimAPI_MakeTorus,
+    BRepPrimAPI_MakeWedge,
+    BRepPrimAPI_MakePrism,
+    BRepPrimAPI_MakeRevol,
+    BRepPrimAPI_MakeSphere,
+)
+from OCP.BRepOffsetAPI import BRepOffsetAPI_MakePipeShell
+from OCP.Geom import Geom_Plane
+from OCP.gp import gp_Pnt, gp_Vec, gp_Ax2
+from OCP.TopLoc import TopLoc_Location
 
 import volmdlr.core_compiled
-from volmdlr import curves, display, edges, surfaces, wires, geometry, faces as vm_faces
-from volmdlr.core import edge_in_list, get_edge_index_in_list, get_point_index_in_list
-from volmdlr.utils.step_writer import geometric_context_writer, product_writer, step_ids_to_str
-from volmdlr import from_ocp, to_ocp
-from volmdlr.utils.mesh_helpers import perform_decimation
+from volmdlr import display, edges, surfaces, wires, faces as vm_faces
+from volmdlr.core import edge_in_list
+from volmdlr import to_ocp
+from volmdlr.utils.ocp_helpers import plot_edge
 
-import OCP.TopAbs as topabs  # Topology type enum
+import OCP.TopAbs as top_abs  # Topology type enum
+from OCP.TopAbs import TopAbs_Orientation
 
 shape_LUT = {
-    topabs.TopAbs_VERTEX: "Vertex",
-    topabs.TopAbs_EDGE: "Edge",
-    topabs.TopAbs_WIRE: "Wire",
-    topabs.TopAbs_FACE: "Face",
-    topabs.TopAbs_SHELL: "Shell",
-    topabs.TopAbs_SOLID: "Solid",
-    topabs.TopAbs_COMPSOLID: "CompSolid",
-    topabs.TopAbs_COMPOUND: "Compound",
+    top_abs.TopAbs_VERTEX: "Vertex",
+    top_abs.TopAbs_EDGE: "Edge",
+    top_abs.TopAbs_WIRE: "Wire",
+    top_abs.TopAbs_FACE: "Face",
+    top_abs.TopAbs_SHELL: "Shell",
+    top_abs.TopAbs_SOLID: "Solid",
+    top_abs.TopAbs_COMPSOLID: "CompSolid",
+    top_abs.TopAbs_COMPOUND: "Compound",
 }
 
 inverse_shape_LUT = {v: k for k, v in shape_LUT.items()}
@@ -73,7 +77,7 @@ Shapes = Literal[
 # pylint: disable=no-name-in-module,invalid-name,unused-import,wrong-import-order
 
 
-def shapetype(obj: TopoDS_Shape) -> topabs.TopAbs_ShapeEnum:
+def shapetype(obj: TopoDS_Shape) -> top_abs.TopAbs_ShapeEnum:
     """
     Gets the shape type for a TopoDS_Shape obejct.
     """
@@ -89,14 +93,14 @@ def downcast(obj: TopoDS_Shape) -> TopoDS_Shape:
     Downcasts a TopoDS object to suitable specialized type.
     """
     downcast_LUT = {
-        topabs.TopAbs_VERTEX: TopoDS.Vertex_s,
-        topabs.TopAbs_EDGE: TopoDS.Edge_s,
-        topabs.TopAbs_WIRE: TopoDS.Wire_s,
-        topabs.TopAbs_FACE: TopoDS.Face_s,
-        topabs.TopAbs_SHELL: TopoDS.Shell_s,
-        topabs.TopAbs_SOLID: TopoDS.Solid_s,
-        topabs.TopAbs_COMPSOLID: TopoDS.CompSolid_s,
-        topabs.TopAbs_COMPOUND: TopoDS.Compound_s,
+        top_abs.TopAbs_VERTEX: TopoDS.Vertex_s,
+        top_abs.TopAbs_EDGE: TopoDS.Edge_s,
+        top_abs.TopAbs_WIRE: TopoDS.Wire_s,
+        top_abs.TopAbs_FACE: TopoDS.Face_s,
+        top_abs.TopAbs_SHELL: TopoDS.Shell_s,
+        top_abs.TopAbs_SOLID: TopoDS.Solid_s,
+        top_abs.TopAbs_COMPSOLID: TopoDS.CompSolid_s,
+        top_abs.TopAbs_COMPOUND: TopoDS.Compound_s,
     }
 
     f_downcast: Any = downcast_LUT[shapetype(obj)]
@@ -115,17 +119,20 @@ def _make_wedge(
         zmax: float,
         point: volmdlr.Vector3D = volmdlr.O3D,
         direction: volmdlr.Vector3D = volmdlr.Z3D,
-        x_direction=volmdlr.X3D) -> BRepPrimAPI_MakeWedge:
+        x_direction: Optional[volmdlr.Vector3D] = None) -> BRepPrimAPI_MakeWedge:
     """
     Make a wedge builder.
 
     This is a private method and should not be used directlly. Please see Solid.make_wedge
     or Shell.make_wedge for details.
     """
-
+    frame = gp_Ax2()
+    frame.SetLocation(to_ocp.point3d_to_ocp(point))
+    frame.SetDirection(to_ocp.vector3d_to_ocp(direction, unit_vector=True))
+    if x_direction:
+        frame.SetXDirection(to_ocp.vector3d_to_ocp(x_direction, unit_vector=True))
     return BRepPrimAPI_MakeWedge(
-        gp_Ax2(to_ocp.point3d_to_ocp(point), to_ocp.vector3d_to_ocp(direction, unit_vector=True),
-               to_ocp.vector3d_to_ocp(x_direction, unit_vector=True)),
+        frame,
         dx,
         dy,
         dz,
@@ -136,40 +143,143 @@ def _make_wedge(
     )
 
 
-class Shape(PhysicalObject):
+def _set_sweep_mode(
+        builder: BRepOffsetAPI_MakePipeShell,
+        path: Union[wires.Wire3D, edges.Edge],
+        mode: Union[volmdlr.Vector3D, wires.Wire3D, edges.Edge],
+) -> bool:
+    rotate = False
+
+    if isinstance(mode, volmdlr.Vector3D):
+        ocp_frame = gp_Ax2()
+        curve = BRepAdaptor_CompCurve(path)
+        umin = curve.FirstParameter()
+        ocp_frame.SetLocation(curve.Value(umin))
+        ocp_frame.SetDirection(to_ocp.vector3d_to_ocp(mode, unit_vector=True))
+        builder.SetMode(ocp_frame)
+        rotate = True
+    elif isinstance(mode, (wires.Wire3D, edges.Edge)):
+        builder.SetMode(mode, True)
+
+    return rotate
+
+
+_trans_mode_dict = {
+    "transformed": BRepBuilderAPI_Transformed,
+    "round": BRepBuilderAPI_RoundCorner,
+    "right": BRepBuilderAPI_RightCorner,
+}
+
+
+def _make_sweep(
+        face: vm_faces.PlaneFace3D,
+        path: Union[wires.Wire3D, edges.Edge],
+        make_solid: bool = True,
+        is_frenet: bool = False,
+        mode: Union[volmdlr.Vector3D, wires.Wire3D, edges.Edge, None] = None,
+        transition_mode: Literal["transformed", "round", "right"] = "transformed",
+) -> Union["Shell", "Solid"]:
+    """
+    This private method sweeps a plane face along a provided path to create a solid or shell.
+
+    :param face: A PlaneFace3D object representing the face to be swept.
+    :param path: A Wire3D or Edge object representing the path along which the face is to be swept.
+    :param make_solid: A boolean value indicating whether to return a Solid (True) or Shell (False). Default is True.
+    :param is_frenet: A boolean value indicating whether to use Frenet mode.
+     If True, the orientation of the profile is computed with respect to the Frenet trihedron. Default is False.
+    :param mode: An optional parameter that can be a Vector3D, Wire3D, Edge, or None.
+     This parameter provides additional sweep mode parameters. If it's a Vector3D, the direction of the vector is used
+     as the sweep direction. If it's a Wire3D or Edge, the sweep follows the path of the wire or edge.
+    :param transition_mode: A string indicating how to handle profile orientation at C1 path discontinuities.
+     Possible values are 'transformed', 'round', and 'right'. 'transformed' means the profile is automatically
+     transformed to make the sweeping path tangent continuous. 'round' means a round corner is built between the two
+    successive sections. 'right' means a right corner (intersection) is built between the two successive sections.
+    Default is 'transformed'.
+    :return: A Solid object resulting from the sweep operation.
+
+    Note: This is a private method and should not be used directly.
+    """
+    outer_wire = to_ocp.contour3d_to_ocp(contour3d=face.outer_contour3d)
+    inner_wires = [to_ocp.contour3d_to_ocp(contour3d=contour) for contour in face.inner_contours3d]
+
+    if isinstance(path, edges.Edge):
+        path = wires.Wire3D([path])
+
+    ocp_path = to_ocp.contour3d_to_ocp(path)
+
+    shapes = []
+    for wire in [outer_wire] + inner_wires:
+        builder = BRepOffsetAPI_MakePipeShell(ocp_path)
+
+        translate = False
+        rotate = False
+
+        # handle sweep mode
+        if mode:
+            rotate = _set_sweep_mode(builder, ocp_path, mode)
+        else:
+            builder.SetMode(is_frenet)
+
+        builder.SetTransitionMode(_trans_mode_dict[transition_mode])
+
+        builder.Add(wire, translate, rotate)
+
+        builder.Build()
+        if make_solid:
+            builder.MakeSolid()
+
+        shapes.append(Shape.cast(builder.Shape()))
+
+    swept_shape, inner_shapes = shapes[0], shapes[1:]
+
+    if inner_shapes:
+        swept_shape = swept_shape.subtraction(*inner_shapes)
+
+    return swept_shape
+
+
+class Shape(volmdlr.core.Primitive3D):
     """
     Represents a shape in the system. Wraps TopoDS_Shape.
     """
-
+    _non_serializable_attributes = ["obj"]
+    _non_data_eq_attributes = ["wrapped"]
     wrapped: TopoDS_Shape
 
     def __init__(self, obj: TopoDS_Shape, name: str = ""):
         self.wrapped = downcast(obj)
         self.label = name
         self._bbox = None
-        PhysicalObject.__init__(self, name=name)
+        super().__init__(name=name)
+
+    def copy(self, deep=True, memo=None):
+        """
+        Copy of Shape.
+
+        :return: return a copy the Shape.
+        """
+        return self.__class__(obj=BRepBuilderAPI_Copy(self.wrapped, True, False).Shape())
+        # new_faces = [face.copy(deep=deep, memo=memo) for face in self.faces]
+        # return self.__class__(new_faces, color=self.color, alpha=self.alpha,
+        #                       name=self.name)
 
     @classmethod
-    def cast(cls, obj: TopoDS_Shape) -> "Shape":
+    def cast(cls, obj: TopoDS_Shape, name: str = '') -> "Shape":
         """
         Returns the right type of wrapper, given a OCCT object.
         """
 
-        tr = None
-
         # define the shape lookup table for casting
         constructor_LUT = {
-            topabs.TopAbs_SHELL: Shell,
-            topabs.TopAbs_SOLID: Solid,
-            topabs.TopAbs_COMPSOLID: CompSolid,
-            topabs.TopAbs_COMPOUND: Compound,
+            top_abs.TopAbs_SHELL: Shell,
+            top_abs.TopAbs_SOLID: Solid,
+            top_abs.TopAbs_COMPSOLID: CompSolid,
+            top_abs.TopAbs_COMPOUND: Compound,
         }
 
-        shape_type = shapetype(obj)
+        shape_type = shapetype(obj=obj)
         # NB downcast is needed to handle TopoDS_Shape types
-        tr = constructor_LUT[shape_type](downcast(obj))
-
-        return tr
+        return constructor_LUT[shape_type](obj=downcast(obj), name=name)
 
     @staticmethod
     def _entities(obj, topo_type: Shapes) -> Iterable[TopoDS_Shape]:
@@ -181,7 +291,7 @@ class Shape(PhysicalObject):
 
     def _get_vertices(self):
         """Gets shape's vertices, if there exists any."""
-        return [downcast(i) for i in self._entities(obj=self.wrapped, topo_type="Vertex")]
+        return [downcast(obj=i) for i in self._entities(obj=self.wrapped, topo_type="Vertex")]
 
     def _get_edges(self):
         """Gets shape's edges, if there exists any."""
@@ -191,6 +301,112 @@ class Shape(PhysicalObject):
     def _get_faces(self):
         """Gets shape's faces, if there exists any."""
         return [downcast(i) for i in self._entities(obj=self.wrapped, topo_type="Face")]
+
+    def get_shells(self) -> List["Shell"]:
+        """
+        :returns: All the shells in this Shape.
+        """
+
+        return [Shell(obj=i) for i in self._entities(obj=self.wrapped, topo_type="Shell")]
+
+    def get_solids(self) -> List["Solid"]:
+        """
+        :returns: All the solids in this Shape.
+        """
+
+        return [Solid(obj=i) for i in self._entities(obj=self.wrapped, topo_type="Solid")]
+
+    def get_compsolids(self) -> List["CompSolid"]:
+        """
+        :returns: All the compsolids in this Shape.
+        """
+
+        return [CompSolid(obj=i) for i in self._entities(obj=self.wrapped, topo_type="CompSolid")]
+
+    def to_brep(self, file: Union[str, BytesIO]) -> bool:
+        """
+        Export this shape to a BREP file.
+        """
+
+        rv = BRepTools.Write_s(self.wrapped, file)
+
+        return True if rv is None else rv
+
+    @classmethod
+    def from_brep(cls, file: Union[str, BytesIO], name: str = '') -> "Shape":
+        """
+        Import shape from a BREP file.
+        """
+        shape = TopoDS_Shape()
+        builder = BRep_Builder()
+
+        BRepTools.Read_s(shape, file, builder)
+
+        if shape.IsNull():
+            raise ValueError(f"Could not import {file}")
+        shape = cls.cast(obj=shape, name=name)
+        # for shape_type in ["shells", "solids", "compsolids"]:
+        #     entity = getattr(shape, f"get_{shape_type}")()
+        #     print(True)
+
+        if cls.__name__ in ["Shell", "Solid", "CompSolid"]:
+            return getattr(shape, f"get_{cls.__name__.lower()}s")()[0]
+        return shape
+
+    @classmethod
+    def from_brep_stream(cls, stream: BinaryFile, name: str = "") -> "Shape":
+        """
+        Import shape from a BREP file stream.
+        """
+        return cls.from_brep(file=stream, name=name)
+
+    def to_brep_stream(self) -> BytesIO:
+        """
+        Export shape from a BREP file stream.
+        """
+        brep_bytesio = BytesIO()
+        self.to_brep(brep_bytesio)
+        return brep_bytesio
+
+    def to_dict(self,
+                use_pointers: bool = True,
+                memo=None,
+                path: str = "#",
+                id_method=True,
+                id_memo=None, **kwargs) -> JsonSerializable:
+        """
+        Serializes a 3-dimensional Shape into a dictionary.
+        """
+        dict_ = self.base_dict()
+
+        brep_content = self.to_brep_stream().getvalue()
+        compressed_brep_data = zlib.compress(brep_content)
+        encoded_brep_string = base64.b64encode(compressed_brep_data).decode()
+
+        dict_["brep"] = encoded_brep_string
+
+        return dict_
+
+    @classmethod
+    def dict_to_object(
+            cls,
+            dict_: JsonSerializable,
+            force_generic: bool = False,
+            global_dict=None,
+            pointers_memo: Dict[str, Any] = None,
+            path: str = "#",
+    ) -> "Shape":
+        """
+        Creates a Shape from a dictionary.
+        """
+        name = dict_["name"]
+
+        encoded_brep_string = dict_["brep"]
+        decoded_brep_data = base64.b64decode(encoded_brep_string)
+        decompressed_brep_data = zlib.decompress(decoded_brep_data)
+        new_brep_bytesio = BytesIO(decompressed_brep_data)
+        obj_class = getattr(sys.modules[__name__], dict_["object_class"][15:])
+        return obj_class.from_brep(new_brep_bytesio, name)
 
     def bounding_box(self):
         """Gets bounding box for this shape."""
@@ -297,6 +513,95 @@ class Shape(PhysicalObject):
 
         return self.__class__(self._bool_op((self,), to_intersect, intersect_op))
 
+    def plot(self, ax=None, edge_style=volmdlr.core.EdgeStyle()):
+        shape_edges = self._get_edges()
+        for edge in shape_edges:
+            ax = plot_edge(edge, ax, edge_style)
+        return ax
+
+    def volmdlr_primitives(self):
+        return [self]
+
+    def mesh(self, tolerance: float, angular_tolerance: float = 0.1):
+        """
+        Generate triangulation if none exists.
+        """
+
+        if not BRepTools.Triangulation_s(self.wrapped, tolerance):
+            BRepMesh_IncrementalMesh(self.wrapped, tolerance, True, angular_tolerance)
+
+    def tessellate(
+            self, tolerance: float, angular_tolerance: float = 0.1
+    ) -> [NDArray[float], List[Tuple[int, int, int]]]:
+
+        self.mesh(tolerance, angular_tolerance)
+
+        vertices = []
+        triangles = []
+        offset = 0
+
+        for face in self._get_faces():
+            loc = TopLoc_Location()
+            poly = BRep_Tool.Triangulation_s(face, loc)
+            trsf = loc.Transformation()
+            reverse = (
+                True
+                if face.Orientation() == TopAbs_Orientation.TopAbs_REVERSED
+                else False
+            )
+
+            # add vertices
+            vertices += [
+                [v.X(), v.Y(), v.Z()]
+                for v in (
+                    poly.Node(i).Transformed(trsf) for i in range(1, poly.NbNodes() + 1)
+                )
+            ]
+
+            # add triangles
+            triangles += [
+                (
+                    triangle.Value(1) + offset - 1,
+                    triangle.Value(3) + offset - 1,
+                    triangle.Value(2) + offset - 1,
+                )
+                if reverse
+                else (
+                    triangle.Value(1) + offset - 1,
+                    triangle.Value(2) + offset - 1,
+                    triangle.Value(3) + offset - 1,
+                )
+                for triangle in poly.Triangles()
+            ]
+
+            offset += poly.NbNodes()
+
+        return vertices, triangles
+
+    def triangulation(self):
+        vertices, triangles = self.tessellate(tolerance=1e-2)
+        mesh = display.Mesh3D(np.array(vertices), np.array(triangles))
+        return mesh
+
+    def babylon_meshes(self, *args, **kwargs):
+        """
+        Returns the babylonjs mesh.
+
+        """
+        mesh = self.triangulation()
+        if mesh is None:
+            return []
+        babylon_mesh = mesh.to_babylon()
+        babylon_mesh.update({
+            'alpha': self.alpha,
+            # 'alpha': 1.0,
+            'name': self.name,
+            'color': list(self.color) if self.color is not None else [0.8, 0.8, 0.8]
+            # 'color': [0.8, 0.8, 0.8]
+        })
+        babylon_mesh["reference_path"] = self.reference_path
+        return [babylon_mesh]
+
 
 class Shell(Shape):
     """
@@ -382,7 +687,8 @@ class Shell(Shape):
                    zmax: float,
                    local_frame_origin: volmdlr.Point3D = volmdlr.O3D,
                    local_frame_direction: volmdlr.Vector3D = volmdlr.Z3D,
-                   local_frame_x_direction: volmdlr.Vector3D = volmdlr.X3D,
+                   local_frame_x_direction: Optional[volmdlr.Vector3D] = None,
+                   name: str = ""
                    ) -> "Shell":
         """
         Creates a wedge, which can represent a pyramid or a truncated pyramid.
@@ -415,6 +721,8 @@ class Shell(Shape):
         :param local_frame_x_direction: The x direction for the local coordinate system of the wedge.
          Defaults to the x-axis (1, 0, 0).
         :type local_frame_x_direction: volmdlr.Vector3D
+        :param name: (Optional) Shape name.
+        :type name: str
 
         :return: The created wedge.
         :rtype: Shell
@@ -446,6 +754,58 @@ class Shell(Shape):
 
         return cls(obj=BRepPrimAPI_MakePrism(ocp_wire, extrusion_vector).Shape(), name=name)
 
+    @classmethod
+    def make_sweep(
+            cls,
+            section: volmdlr.wires.Contour2D,
+            path: Union[wires.Wire3D, edges.Edge],
+            starting_frame: Optional[volmdlr.Frame3D] = None,
+            is_frenet: bool = False,
+            mode: Union[volmdlr.Vector3D, wires.Wire3D, edges.Edge, None] = None,
+            transition_mode: Literal["transformed", "round", "right"] = "transformed",
+            name: str = ""
+    ) -> "Shell":
+        """
+        Class method to create a Shell object by sweeping a contour along a provided path.
+
+        :param section: A Contour2D object representing the section to be swept.
+        :param path: A Wire3D or Edge object representing the path along which the section is to be swept.
+        :param starting_frame: An optional Frame3D object representing the starting frame of the sweep. If None, the
+         starting frame is computed based on the path.
+        :param is_frenet: A boolean value indicating whether to use Frenet mode. If True, the orientation of the
+         profile is computed with respect to the Frenet trihedron. Default is False.
+        :param mode: An optional parameter that can be a Vector3D, Wire3D, Edge, or None. This parameter provides
+         additional sweep mode parameters. If it's a Vector3D, the direction of the vector is used as the sweep
+         direction. If it's a Wire3D or Edge, the sweep follows the path of the wire or edge.
+        :param transition_mode: A string indicating how to handle profile orientation at C1 path discontinuities.
+         Possible values are 'transformed', 'round', and 'right'. 'transformed' means the profile is automatically
+         transformed to make the sweeping path tangent continuous. 'round' means a round corner is built between the
+         two successive sections. 'right' means a right corner (intersection) is built between the two successive
+         sections. Default is 'transformed'.
+        :param name: An optional string to name the Shell object.
+        :return: A Shell object resulting from the sweep operation.
+        """
+        if starting_frame is None:
+            if isinstance(path, volmdlr.wires.Wire3D):
+                origin = path.primitives[0].start
+                w = path.primitives[0].unit_direction_vector(0.)
+                u = path.primitives[0].unit_normal_vector(0.)
+            else:
+                origin = path.start
+                w = path.unit_direction_vector(0.)
+                u = path.unit_normal_vector(0.)
+            if not u:
+                u = w.deterministic_unit_normal_vector()
+            v = w.cross(u)
+            starting_frame = volmdlr.Frame3D(origin, u, v, w)
+        face = vm_faces.PlaneFace3D(surface3d=surfaces.Plane3D(starting_frame),
+                                    surface2d=surfaces.Surface2D(outer_contour=section,
+                                                                 inner_contours=[]))
+        shell = _make_sweep(face=face, path=path, make_solid=True, is_frenet=is_frenet,
+                                   mode=mode, transition_mode=transition_mode)
+        shell.name = name
+        return shell
+
 
 class Solid(Shape):
     """
@@ -460,7 +820,7 @@ class Solid(Shape):
         Gets shells from solid.
         """
         shape_set = TopTools_IndexedMapOfShape()
-        TopExp.MapShapes_s(self.wrapped, topabs.TopAbs_SHELL, shape_set)
+        TopExp.MapShapes_s(self.wrapped, top_abs.TopAbs_SHELL, shape_set)
         return [Shell(obj=shape) for shape in shape_set]
 
     @classmethod
@@ -470,6 +830,127 @@ class Solid(Shape):
         """
 
         return cls(ShapeFix_Solid().SolidFromShell(shell.wrapped))
+
+    @classmethod
+    def make_box(
+            cls,
+            length: float,
+            width: float,
+            height: float,
+            point: volmdlr.Point3D = volmdlr.Point3D(0, 0, 0),
+            direction: volmdlr.Vector3D = volmdlr.Vector3D(0, 0, 1),
+    ) -> "Solid":
+        """
+        Make a box located in point with the dimensions (length,width,height).
+
+        By default, pnt=Vector(0,0,0) and dir=Vector(0,0,1).
+        """
+        frame = volmdlr.Frame3D.from_point_and_normal(point, direction)
+        return cls(
+            BRepPrimAPI_MakeBox(
+                to_ocp.frame3d_to_ocp(frame=frame, right_handed=True), length, width, height
+            ).Shape()
+        )
+
+    @classmethod
+    def make_cone(
+            cls,
+            radius1: float,
+            radius2: float,
+            height: float,
+            point: volmdlr.Point3D = volmdlr.Point3D(0, 0, 0),
+            direction: volmdlr.Vector3D = volmdlr.Vector3D(0, 0, 1),
+            angle_degrees: float = 360,
+    ) -> "Solid":
+        """
+        Make a cone with given radii and height
+        By default pnt=Vector(0,0,0),
+        dir=Vector(0,0,1) and angle=360
+        """
+        frame = volmdlr.Frame3D.from_point_and_normal(point, direction)
+        return cls(
+            BRepPrimAPI_MakeCone(
+                to_ocp.frame3d_to_ocp(frame=frame, right_handed=True),
+                radius1,
+                radius2,
+                height,
+                math.radians(angle_degrees),
+            ).Shape()
+        )
+
+    @classmethod
+    def make_cylinder(
+            cls,
+            radius: float,
+            height: float,
+            point: volmdlr.Point3D = volmdlr.Point3D(0, 0, 0),
+            direction: volmdlr.Vector3D = volmdlr.Vector3D(0, 0, 1),
+            angle_degrees: float = 360,
+    ) -> "Solid":
+        """
+        Make a cylinder with a given radius and height.
+
+        By default point=volmdlr.Point3D(0,0,0),dir=voldmlr.Vector3D(0,0,1) and angle=360.
+
+        """
+        frame = volmdlr.Frame3D.from_point_and_normal(point, direction)
+        return cls(
+            BRepPrimAPI_MakeCylinder(to_ocp.frame3d_to_ocp(frame=frame, right_handed=True),
+                                     radius, height, math.radians(angle_degrees), ).Shape()
+        )
+
+    @classmethod
+    def make_torus(
+            cls,
+            radius1: float,
+            radius2: float,
+            point: volmdlr.Point3D = volmdlr.Point3D(0, 0, 0),
+            direction: volmdlr.Vector3D = volmdlr.Vector3D(0, 0, 1),
+            angle_degrees1: float = 0,
+            angle_degrees2: float = 360,
+    ) -> "Solid":
+        """
+        Make a torus with a given radii and angles.
+
+        By default, point=Vector3D(0,0,0),direction=Vector3D(0,0,1),angle1=0
+        ,angle1=360 and angle=360.
+        """
+        frame = volmdlr.Frame3D.from_point_and_normal(point, direction)
+        return cls(
+            BRepPrimAPI_MakeTorus(
+                to_ocp.frame3d_to_ocp(frame=frame, right_handed=True),
+                radius1,
+                radius2,
+                math.radians(angle_degrees1),
+                math.radians(angle_degrees2),
+            ).Shape()
+        )
+
+    @classmethod
+    def make_sphere(
+            cls,
+            radius: float,
+            point: volmdlr.Point3D = volmdlr.Point3D(0, 0, 0),
+            direction: volmdlr.Vector3D = volmdlr.Vector3D(0, 0, 1),
+            angle_degrees1: float = 0,
+            angle_degrees2: float = 90,
+            angle_degrees3: float = 360,
+    ) -> "Shape":
+        """
+        Make a sphere with a given radius.
+
+        By default, point=Vector3D(0,0,0),direction=Vector3D(0,0,1), angle1=0, angle2=90 and angle3=360
+        """
+        frame = volmdlr.Frame3D.from_point_and_normal(point, direction)
+        return cls(
+            BRepPrimAPI_MakeSphere(
+                to_ocp.frame3d_to_ocp(frame=frame, right_handed=True),
+                radius,
+                math.radians(angle_degrees1),
+                math.radians(angle_degrees2),
+                math.radians(angle_degrees3),
+            ).Shape()
+        )
 
     @classmethod
     def make_wedge(cls,
@@ -482,7 +963,8 @@ class Solid(Shape):
                    zmax: float,
                    local_frame_origin: volmdlr.Point3D = volmdlr.O3D,
                    local_frame_direction: volmdlr.Vector3D = volmdlr.Z3D,
-                   local_frame_x_direction: volmdlr.Vector3D = volmdlr.X3D,
+                   local_frame_x_direction: Optional[volmdlr.Vector3D] = None,
+                   name: str = ""
                    ) -> "Solid":
         """
         Creates a wedge, which can represent a pyramid or a truncated pyramid.
@@ -515,6 +997,8 @@ class Solid(Shape):
         :param local_frame_x_direction: The x direction for the local coordinate system of the wedge.
          Defaults to the x-axis (1, 0, 0).
         :type local_frame_x_direction: volmdlr.Vector3D
+        :param name: (Optional) Shape name.
+        :type name: str
 
         :return: The created wedge.
         :rtype: Solid
@@ -533,7 +1017,7 @@ class Solid(Shape):
         return cls(obj=_make_wedge(dx=dx, dy=dy, dz=dz, xmin=xmin, zmin=zmin, xmax=xmax, zmax=zmax,
                                    point=local_frame_origin,
                                    direction=local_frame_direction,
-                                   x_direction=local_frame_x_direction).Solid())
+                                   x_direction=local_frame_x_direction).Solid(), name=name)
 
     @classmethod
     def make_extrusion(cls, face: Union[vm_faces.PlaneFace3D, Geom_Plane],
@@ -542,7 +1026,7 @@ class Solid(Shape):
         Returns a solid generated by the extrusion of a plane face.
         """
         ocp_face = face
-        if isinstance(ocp_face, vm_faces.Face3D):
+        if isinstance(ocp_face, vm_faces.PlaneFace3D):
             ocp_face = face.to_ocp()
         extrusion_vector = to_ocp.vector3d_to_ocp(face.surface3d.frame.w * extrusion_length)
         solid = BRepPrimAPI_MakePrism(ocp_face, extrusion_vector)
@@ -563,81 +1047,92 @@ class Solid(Shape):
 
         return cls(obj=solid.wrapped, name=name)
 
-    _transModeDict = {
-        "transformed": BRepBuilderAPI_Transformed,
-        "round": BRepBuilderAPI_RoundCorner,
-        "right": BRepBuilderAPI_RightCorner,
-    }
-
-    @staticmethod
-    def _set_sweep_mode(
-        builder: BRepOffsetAPI_MakePipeShell,
-        path: Union[wires.Wire3D, edges.Edge],
-        mode: Union[volmdlr.Vector3D, wires.Wire3D, edges.Edge],
-    ) -> bool:
-
-        rotate = False
-
-        if isinstance(mode, volmdlr.Vector3D):
-            ocp_frame = gp_Ax2()
-            curve = BRepAdaptor_CompCurve(path)
-            umin = curve.FirstParameter()
-            ocp_frame.SetLocation(curve.Value(umin))
-            ocp_frame.SetDirection(to_ocp.vector3d_to_ocp(mode, unit_vector=True))
-            builder.SetMode(ocp_frame)
-            rotate = True
-        elif isinstance(mode, (wires.Wire3D, edges.Edge)):
-            builder.SetMode(mode, True)
-
-        return rotate
-
     @classmethod
     def make_sweep(
-        cls,
-        face: vm_faces.Face3D,
-        path: Union[wires.Wire3D, edges.Edge],
-        make_solid: bool = True,
-        is_frenet: bool = False,
-        mode: Union[volmdlr.Vector3D, wires.Wire3D, edges.Edge, None] = None,
-        transition_mode: Literal["transformed", "round", "right"] = "transformed",
-    ) -> "Shape":
-        outer_wire = to_ocp.contour3d_to_ocp(contour3d=face.outer_contour3d)
-        inner_wires = [to_ocp.contour3d_to_ocp(contour3d=contour) for contour in face.inner_contours3d]
+            cls,
+            face: vm_faces.PlaneFace3D,
+            path: Union[wires.Wire3D, edges.Edge],
+            is_frenet: bool = False,
+            mode: Union[volmdlr.Vector3D, wires.Wire3D, edges.Edge, None] = None,
+            transition_mode: Literal["transformed", "round", "right"] = "transformed",
+            name: str = ""
+    ) -> "Solid":
+        """
+        Class method to create a Solid object by sweeping a plane face along a provided path.
 
-        if isinstance(path, edges.Edge):
-            path = wires.Wire3D([path])
+        :param face: A PlaneFace3D object representing the face to be swept.
+        :param path: A Wire3D or Edge object representing the path along which the face is to be swept.
+        :param is_frenet: A boolean value indicating whether to use Frenet mode. If True, the orientation of the
+         profile is computed with respect to the Frenet trihedron. Default is False.
+        :param mode: An optional parameter that can be a Vector3D, Wire3D, Edge, or None.
+         This parameter provides additional sweep mode parameters. If it's a Vector3D, the direction of the vector is
+         used as the sweep direction. If it's a Wire3D or Edge, the sweep follows the path of the wire or edge.
+        :param transition_mode: A string indicating how to handle profile orientation at C1 path discontinuities.
+         Possible values are 'transformed', 'round', and 'right'. 'transformed' means the profile is automatically
+         transformed to make the sweeping path tangent continuous. 'round' means a round corner is built between the
+         two successive sections. 'right' means a right corner (intersection) is built between the two successive
+         sections. Default is 'transformed'.
+        :param name: An optional string to name the Solid object.
+        :return: A Solid object resulting from the sweep operation.
+        """
+        solid = _make_sweep(face=face, path=path, make_solid=True, is_frenet=is_frenet,
+                                   mode=mode, transition_mode=transition_mode)
+        solid.name = name
+        return solid
 
-        ocp_path = to_ocp.contour3d_to_ocp(path)
+    @classmethod
+    def make_sweep_from_contour(
+            cls,
+            section: volmdlr.wires.Contour2D,
+            path: Union[wires.Wire3D, edges.Edge],
+            inner_contours: Optional[List[volmdlr.wires.Contour2D]] = None,
+            starting_frame: Optional[volmdlr.Frame3D] = None,
+            is_frenet: bool = False,
+            mode: Union[volmdlr.Vector3D, wires.Wire3D, edges.Edge, None] = None,
+            transition_mode: Literal["transformed", "round", "right"] = "transformed",
+            name: str = ""
+    ) -> "Solid":
+        """
+        Class method to create a Solid object by sweeping a contour along a provided path.
 
-        shapes = []
-        for wire in [outer_wire] + inner_wires:
-            builder = BRepOffsetAPI_MakePipeShell(ocp_path)
-
-            translate = False
-            rotate = False
-
-            # handle sweep mode
-            if mode:
-                rotate = cls._set_sweep_mode(builder, path, mode)
+        :param section: A Contour2D object representing the section to be swept.
+        :param path: A Wire3D or Edge object representing the path along which the section is to be swept.
+        :param inner_contours: A list of Contour2D objects representing the inner contours of the section.
+        :param starting_frame: An optional Frame3D object representing the starting frame of the sweep.
+         If None, the starting frame is computed based on the path.
+        :param is_frenet: A boolean value indicating whether to use Frenet mode. If True, the orientation of the
+         profile is computed with respect to the Frenet trihedron. Default is False.
+        :param mode: An optional parameter that can be a Vector3D, Wire3D, Edge, or None. This parameter provides
+         additional sweep mode parameters. If it's a Vector3D, the direction of the vector is used as the sweep
+         direction. If it's a Wire3D or Edge, the sweep follows the path of the wire or edge.
+        :param transition_mode: A string indicating how to handle profile orientation at C1 path discontinuities.
+         Possible values are 'transformed', 'round', and 'right'. 'transformed' means the profile is automatically
+         transformed to make the sweeping path tangent continuous. 'round' means a round corner is built between the
+         two successive sections. 'right' means a right corner (intersection) is built between the two successive
+         sections. Default is 'transformed'.
+        :param name: An optional string to name the Solid object.
+        :return: A Solid object resulting from the sweep operation.
+        """
+        if starting_frame is None:
+            if isinstance(path, volmdlr.wires.Wire3D):
+                origin = path.primitives[0].start
+                w = path.primitives[0].unit_direction_vector(0.)
+                u = path.primitives[0].unit_normal_vector(0.)
             else:
-                builder.SetMode(is_frenet)
-
-            builder.SetTransitionMode(cls._transModeDict[transition_mode])
-
-            builder.Add(wire, translate, rotate)
-
-            builder.Build()
-            if make_solid:
-                builder.MakeSolid()
-
-            shapes.append(Shape.cast(builder.Shape()))
-
-        rv, inner_shapes = shapes[0], shapes[1:]
-
-        if inner_shapes:
-            rv = rv.subtraction(*inner_shapes)
-
-        return rv
+                origin = path.start
+                w = path.unit_direction_vector(0.)
+                u = path.unit_normal_vector(0.)
+            if not u:
+                u = w.deterministic_unit_normal_vector()
+            v = w.cross(u)
+            starting_frame = volmdlr.Frame3D(origin, u, v, w)
+        if inner_contours is None:
+            inner_contours = []
+        face = vm_faces.PlaneFace3D(surface3d=surfaces.Plane3D(starting_frame),
+                                    surface2d=surfaces.Surface2D(outer_contour=section,
+                                                                 inner_contours=inner_contours))
+        return cls.make_sweep(face=face, path=path, is_frenet=is_frenet, mode=mode, transition_mode=transition_mode,
+                              name=name)
 
 
 class CompSolid(Shape):
