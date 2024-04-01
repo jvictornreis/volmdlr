@@ -31,7 +31,7 @@ import volmdlr.geometry
 from volmdlr import curves, edges, PATH_ROOT
 from volmdlr.core_compiled import polygon_point_belongs, points_in_polygon
 from volmdlr.core import EdgeStyle
-from volmdlr import from_ocp
+from volmdlr import from_ocp, to_ocp
 from volmdlr.utils import step_writer
 
 
@@ -196,7 +196,8 @@ OCCT_TO_VOLMDLR = {"Geom_Line": curves.Line3D,
                    "Geom_Ellipse": curves.Ellipse3D,
                    "Geom_Parabola": curves.Parabola3D,
                    "Geom_Hyperbola": curves.Hyperbola3D,
-                   "Geom_BSplineCurve": edges.BSplineCurve3D}
+                   "Geom_BSplineCurve": edges.BSplineCurve3D,
+                   "Geom_BezierCurve": edges.BezierCurve3D}
 
 
 class WireMixin:
@@ -751,6 +752,12 @@ class WireMixin:
         if not cls(primitives=list_edges).is_ordered(1e-4):
             print("Contour not ordered")
         return cls(primitives=list_edges)
+
+    def to_ocp(self):
+        """
+        Returns an OCP shape equivalent to the volmdlr object.
+        """
+        return to_ocp.contour3d_to_ocp(self)
 
 
 class EdgeCollection3D(WireMixin, PhysicalObject):

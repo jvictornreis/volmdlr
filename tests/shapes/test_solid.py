@@ -2,6 +2,7 @@ import os
 import math
 import unittest
 from dessia_common.core import DessiaObject
+from OCP.TopoDS import TopoDS_Solid
 import volmdlr
 from volmdlr import faces, surfaces, shapes, wires, curves
 
@@ -33,8 +34,8 @@ class TestSolid(unittest.TestCase):
         self.assertEqual(dict_to_obejct, self.solid1)
 
     def test_to_brep_from_brep(self):
-        self.solid1.to_brep(objects_folder+"/test_to_brep.brep")
-        from_brep = shapes.Solid.from_brep(objects_folder+"/test_to_brep.brep")
+        self.solid1.to_brep(objects_folder + "/test_to_brep.brep")
+        from_brep = shapes.Solid.from_brep(objects_folder + "/test_to_brep.brep")
         self.assertEqual(from_brep, self.solid1)
 
     def test_union(self):
@@ -48,7 +49,7 @@ class TestSolid(unittest.TestCase):
     def test_intersection(self):
         intersection = self.solid1.intersection(self.solid2)[0]
         self.assertAlmostEqual(intersection.volume(), 1.0)
-    
+
     def test_make_extrusion(self):
         length, width, height, radius = 0.4, 0.3, 0.08, 0.1
         outer_contour2d = wires.Contour2D.rectangle_from_center_and_sides(volmdlr.O2D, x_length=length, y_length=width,
@@ -78,7 +79,7 @@ class TestSolid(unittest.TestCase):
 
     def test_box(self):
         box = shapes.Solid.make_box(length=2, width=3, height=5)
-        self.assertEqual(box.volume(), 2*3*5)
+        self.assertEqual(box.volume(), 2 * 3 * 5)
 
     def test_cone(self):
         cone = shapes.Solid.make_cone(radius1=0, radius2=5, height=5, direction=volmdlr.X3D, angle_degrees=270)
@@ -97,6 +98,31 @@ class TestSolid(unittest.TestCase):
         torus1 = shapes.Solid.make_torus(radius1=2, radius2=.5, direction=volmdlr.X3D, angle_degrees1=0,
                                          angle_degrees2=360)
         self.assertAlmostEqual(torus1.volume(), 9.869604401089358)
+
+    def test_loft(self):
+        diameter = 0.3
+        circle1 = curves.Circle3D(frame=volmdlr.OXYZ, radius=diameter / 2)
+        circle2 = curves.Circle3D(
+            frame=volmdlr.Frame3D(volmdlr.Point3D(0.3, 0.0, 0.5), volmdlr.Y3D, volmdlr.Z3D, volmdlr.X3D),
+            radius=circle1.radius / 2)
+        circle3 = curves.Circle3D(
+            frame=volmdlr.Frame3D(volmdlr.Point3D(0.6, 0.0, 0.3), volmdlr.Y3D, volmdlr.X3D, -volmdlr.Z3D),
+            radius=circle1.radius * 0.6)
+        sections = [wires.Contour3D.from_circle(circle1), wires.Contour3D.from_circle(circle2),
+                    wires.Contour3D.from_circle(circle3)]
+        loft = shapes.Solid.make_loft(sections=sections, name="loft")
+        self.assertEqual(loft.name, "loft")
+        self.assertEqual(len(loft.primitives[0].primitives), 4)
+        self.assertIsInstance(loft.wrapped, TopoDS_Solid)
+
+        section2 = wires.Contour3D.from_points([volmdlr.Point3D(0.0, -0.1, 0.3), volmdlr.Point3D(0.05, -0.05, 0.3),
+                                              volmdlr.Point3D(0.05, 0.05, 0.3), volmdlr.Point3D(0.0, 0.1, 0.3),
+                                              volmdlr.Point3D(-0.05, 0.05, 0.3), volmdlr.Point3D(-0.05, -0.05, 0.3)])
+
+        sections = [wires.Contour3D.from_circle(circle1), section2, volmdlr.Point3D(0.0, 0.0, 0.45)]
+        loft = shapes.Solid.make_loft(sections=sections, ruled=True)
+        self.assertEqual(len(loft.primitives[0].primitives), 15)
+        self.assertIsInstance(loft.wrapped, TopoDS_Solid)
 
 
 if __name__ == '__main__':

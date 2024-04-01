@@ -2,37 +2,26 @@
 import base64
 # pylint: disable=no-name-in-module
 import math
-import random
 import sys
-import warnings
 import zlib
 from io import BytesIO
-from itertools import chain, product
 from typing import Iterable, List, Tuple, Union, Optional, Any, Dict, overload, Literal, cast as tcast
 
-import matplotlib.pyplot as plt
-import networkx as nx
 import numpy as np
 from dessia_common.files import BinaryFile
-from dessia_common.core import DessiaObject, PhysicalObject
 from dessia_common.typings import JsonSerializable
 from numpy.typing import NDArray
-from trimesh import Trimesh
 
 from OCP.BRep import BRep_Tool, BRep_Builder
 from OCP.TopoDS import (TopoDS, TopoDS_Shape, TopoDS_Shell, TopoDS_Face,
                         TopoDS_Solid, TopoDS_CompSolid, TopoDS_Compound, TopoDS_Builder)
-from OCP.BRepBuilderAPI import BRepBuilderAPI_Sewing, BRepBuilderAPI_MakeFace, BRepBuilderAPI_Copy
-from OCP.BRepPrimAPI import BRepPrimAPI_MakePrism, BRepPrimAPI_MakeWedge
-from OCP.TopTools import TopTools_IndexedMapOfShape
-from OCP.TopExp import TopExp
-from OCP.Geom import Geom_Plane
+from OCP.BRepBuilderAPI import (BRepBuilderAPI_Sewing, BRepBuilderAPI_MakeFace, BRepBuilderAPI_Copy,
+                                BRepBuilderAPI_MakeVertex)
 from OCP.Bnd import Bnd_Box
 from OCP.BRepBndLib import BRepBndLib
 from OCP.BRepMesh import BRepMesh_IncrementalMesh
 from OCP.GProp import GProp_PGProps
 from OCP.BRepGProp import BRepGProp
-from OCP.BRepExtrema import BRepExtrema_DistShapeShape
 from OCP.BRepAlgoAPI import (BRepAlgoAPI_Fuse, BRepAlgoAPI_BooleanOperation, BRepAlgoAPI_Splitter,
                              BRepAlgoAPI_Cut, BRepAlgoAPI_Common)
 from OCP.BOPAlgo import BOPAlgo_GlueEnum, BOPAlgo_PaveFiller
@@ -51,18 +40,16 @@ from OCP.BRepPrimAPI import (
     BRepPrimAPI_MakeRevol,
     BRepPrimAPI_MakeSphere,
 )
+from OCP.BRepOffsetAPI import BRepOffsetAPI_MakePipeShell, BRepOffsetAPI_ThruSections
+from OCP.Geom import Geom_Plane
+from OCP.gp import gp_Ax2
 from OCP.TopLoc import TopLoc_Location
 
-from OCP.gp import gp_Ax2
-
-
 import volmdlr.core_compiled
-from volmdlr import curves, display, edges, surfaces, wires, geometry, faces as vm_faces
-from volmdlr.core import edge_in_list, get_edge_index_in_list, get_point_index_in_list
-from volmdlr.utils.step_writer import geometric_context_writer, product_writer, step_ids_to_str
-from volmdlr import from_ocp, to_ocp
+from volmdlr import display, surfaces, wires, faces as vm_faces
+from volmdlr.core import edge_in_list
+from volmdlr import to_ocp
 from volmdlr.utils.ocp_helpers import plot_edge
-from volmdlr.utils.mesh_helpers import perform_decimation
 
 import OCP.TopAbs as top_abs  # Topology type enum
 from OCP.TopAbs import TopAbs_Orientation
@@ -148,6 +135,43 @@ def _make_wedge(
         xmax,
         zmax,
     )
+
+
+def _make_loft(sections: List[Union[wires.Contour3D, volmdlr.Point3D]],
+               solid: bool = True, ruled: bool = False) -> Union[TopoDS_Solid, TopoDS_Shell]:
+    """
+    Builds a lofted solid or shell by connecting a sequence of section profiles.
+
+    :param sections: A list of section profiles to be connected. The first and the last sections can be vertices,
+     representing punctual sections.
+    :param solid: A boolean value indicating whether to create a solid (True) or a shell (False). Default is True.
+    :param ruled: A boolean value indicating the type of surface to generate between each pair of sections.
+     If False (default), the loft will generate smooth curves between each of the sections.
+     If True, the loft will generate a ruled surface (straight lines) between each pair of sections.
+    :return: A TopoDS_Solid or TopoDS_Shell object representing the lofted shape.
+
+    Raises:
+        ValueError: If less than two sections are provided.
+    """
+    if len(sections) < 2:
+        raise ValueError("More than one wire is required")
+    loft_builder = BRepOffsetAPI_ThruSections(solid, ruled)
+    if isinstance(sections[0], volmdlr.Point3D):
+        loft_builder.AddVertex(BRepBuilderAPI_MakeVertex(to_ocp.point3d_to_ocp(sections[0])).Vertex())
+    else:
+        loft_builder.AddWire(sections[0].to_ocp())
+
+    for section in sections[1:-1]:
+        loft_builder.AddWire(section.to_ocp())
+
+    if isinstance(sections[-1], volmdlr.Point3D):
+        loft_builder.AddVertex(BRepBuilderAPI_MakeVertex(to_ocp.point3d_to_ocp(sections[-1])).Vertex())
+    else:
+        loft_builder.AddWire(sections[-1].to_ocp())
+
+    loft_builder.Build()
+
+    return loft_builder.Shape()
 
 
 class Shape(volmdlr.core.Primitive3D):
@@ -650,15 +674,35 @@ class Shell(Shape):
                                    x_direction=local_frame_x_direction).Shell())
 
     @classmethod
-    def make_extrusion(cls, wire: wires.Contour3D, extrusion_direction: volmdlr.Vector3D,
+    def make_extrusion(cls, wire: Union[wires.Wire3D, wires.Contour3D], extrusion_direction: volmdlr.Vector3D,
                        extrusion_length: float, name: str = '') -> "Shell":
         """
-        Returns a solid generated by the extrusion of a plane face.
+        Returns a Shell generated by the extrusion of a wire.
         """
         ocp_wire = to_ocp.contour3d_to_ocp(wire)
         extrusion_vector = to_ocp.vector3d_to_ocp(extrusion_direction * extrusion_length)
 
         return cls(obj=BRepPrimAPI_MakePrism(ocp_wire, extrusion_vector).Shape(), name=name)
+
+    @classmethod
+    def make_loft(cls, sections: List[Union[wires.Contour3D, volmdlr.Point3D]],
+                  ruled: bool = False, name: str = "") -> "Shell":
+        """
+        Builds a lofted shell by connecting a sequence of section profiles.
+
+        :param sections: A list of section profiles to be connected. The first and the last sections can be vertices,
+         representing punctual sections.
+        :param ruled: A boolean value indicating the type of surface to generate between each pair of sections.
+         If False (default), the loft will generate smooth curves between each of the sections.
+         If True, the loft will generate a ruled surface (straight lines) between each pair of sections.
+        :param name: An optional string to name the solid.
+        :return: A Shell object representing the lofted shape.
+
+        Raises:
+            ValueError: If less than two sections are provided.
+        """
+
+        return cls(obj=_make_loft(sections=sections, solid=False, ruled=ruled), name=name)
 
 
 class Solid(Shape):
@@ -897,6 +941,26 @@ class Solid(Shape):
                 math.radians(angle_degrees3),
             ).Shape()
         )
+
+    @classmethod
+    def make_loft(cls, sections: List[Union[wires.Contour3D, volmdlr.Point3D]],
+                  ruled: bool = False, name: str = "") -> "Solid":
+        """
+        Builds a lofted solid by connecting a sequence of section profiles.
+
+        :param sections: A list of section profiles to be connected. The first and the last sections can be vertices,
+         representing punctual sections.
+        :param ruled: A boolean value indicating the type of surface to generate between each pair of sections.
+         If False (default), the loft will generate smooth curves between each of the sections.
+         If True, the loft will generate a ruled surface (straight lines) between each pair of sections.
+        :param name: An optional string to name the solid.
+        :return: A Solid object representing the lofted shape.
+
+        Raises:
+            ValueError: If less than two sections are provided.
+        """
+
+        return cls(obj=_make_loft(sections=sections, solid=True, ruled=ruled), name=name)
 
 
 class CompSolid(Shape):
