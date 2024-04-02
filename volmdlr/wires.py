@@ -801,9 +801,9 @@ class Wire2D(WireMixin, PhysicalObject):
         if self.index_next >= len(self.primitives):
             self.index_next = 0
             raise StopIteration
-        else:
-            self.index_next += 1
-            return self.primitives[self.index_next-1]
+
+        self.index_next += 1
+        return self.primitives[self.index_next-1]
     def __hash__(self):
         return hash(('wire2d', tuple(self.primitives)))
 
@@ -1352,9 +1352,9 @@ class Wire3D(WireMixin, PhysicalObject):
         if self.index >= len(self.primitives):
             self.index = 0
             raise StopIteration
-        else:
-            self.index += 1
-            return self.primitives[self.index-1]
+
+        self.index += 1
+        return self.primitives[self.index-1]
 
     def _bounding_box(self):
         """
@@ -2924,9 +2924,9 @@ class ClosedPolygon2D(ClosedPolygonMixin, Contour2D):
         if self.index >= len(self.points):
             self.index = 0
             raise StopIteration
-        else:
-            self.index += 1
-            return self.points[self.index-1]
+
+        self.index += 1
+        return self.points[self.index-1]
     def copy(self, *args, **kwargs):
         """Returns a copy of the object."""
         points = [point.copy() for point in self.points]
@@ -4514,9 +4514,9 @@ class ClosedPolygon3D(Contour3D, ClosedPolygonMixin):
         if self.index >= len(self.points):
             self.index = 0
             raise StopIteration
-        else:
-            self.index += 1
-            return self.points[self.index-1]
+
+        self.index += 1
+        return self.points[self.index-1]
 
     def get_line_segments(self):
         """Get polygon lines."""
