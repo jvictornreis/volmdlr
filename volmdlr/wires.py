@@ -196,7 +196,8 @@ OCCT_TO_VOLMDLR = {"Geom_Line": curves.Line3D,
                    "Geom_Ellipse": curves.Ellipse3D,
                    "Geom_Parabola": curves.Parabola3D,
                    "Geom_Hyperbola": curves.Hyperbola3D,
-                   "Geom_BSplineCurve": edges.BSplineCurve3D}
+                   "Geom_BSplineCurve": edges.BSplineCurve3D,
+                   "Geom_BezierCurve": edges.BezierCurve3D}
 
 
 class WireMixin:

@@ -1,9 +1,10 @@
 import os
 import math
 import unittest
-from OCP.TopoDS import TopoDS_Solid
 
 from dessia_common.core import DessiaObject
+
+from OCP.TopoDS import TopoDS_Solid
 
 import volmdlr
 from volmdlr.models.contours import rim_contour, w, wb, R, Rb, th
@@ -147,6 +148,31 @@ class TestSolid(unittest.TestCase):
         self.assertEqual(revolution_shape.name, "Conical rim")
         self.assertEqual(len(revolution_shape.primitives[0].primitives), 11)
         self.assertIsInstance(revolution_shape.wrapped, TopoDS_Solid)
+
+    def test_loft(self):
+        diameter = 0.3
+        circle1 = curves.Circle3D(frame=volmdlr.OXYZ, radius=diameter / 2)
+        circle2 = curves.Circle3D(
+            frame=volmdlr.Frame3D(volmdlr.Point3D(0.3, 0.0, 0.5), volmdlr.Y3D, volmdlr.Z3D, volmdlr.X3D),
+            radius=circle1.radius / 2)
+        circle3 = curves.Circle3D(
+            frame=volmdlr.Frame3D(volmdlr.Point3D(0.6, 0.0, 0.3), volmdlr.Y3D, volmdlr.X3D, -volmdlr.Z3D),
+            radius=circle1.radius * 0.6)
+        sections = [wires.Contour3D.from_circle(circle1), wires.Contour3D.from_circle(circle2),
+                    wires.Contour3D.from_circle(circle3)]
+        loft = shapes.Solid.make_loft(sections=sections, name="loft")
+        self.assertEqual(loft.name, "loft")
+        self.assertEqual(len(loft.primitives[0].primitives), 4)
+        self.assertIsInstance(loft.wrapped, TopoDS_Solid)
+
+        section2 = wires.Contour3D.from_points([volmdlr.Point3D(0.0, -0.1, 0.3), volmdlr.Point3D(0.05, -0.05, 0.3),
+                                                volmdlr.Point3D(0.05, 0.05, 0.3), volmdlr.Point3D(0.0, 0.1, 0.3),
+                                                volmdlr.Point3D(-0.05, 0.05, 0.3), volmdlr.Point3D(-0.05, -0.05, 0.3)])
+
+        sections = [wires.Contour3D.from_circle(circle1), section2, volmdlr.Point3D(0.0, 0.0, 0.45)]
+        loft = shapes.Solid.make_loft(sections=sections, ruled=True)
+        self.assertEqual(len(loft.primitives[0].primitives), 15)
+        self.assertIsInstance(loft.wrapped, TopoDS_Solid)
 
 
 if __name__ == '__main__':
