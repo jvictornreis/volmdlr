@@ -2,26 +2,24 @@
 import base64
 # pylint: disable=no-name-in-module
 import math
-import random
 import sys
-import warnings
 import zlib
 from io import BytesIO
-from itertools import chain, product
 from typing import Iterable, List, Tuple, Union, Optional, Any, Dict, overload, Literal, cast as tcast
 
-import matplotlib.pyplot as plt
-import networkx as nx
 import numpy as np
 from dessia_common.files import BinaryFile
-from dessia_common.core import DessiaObject, PhysicalObject
 from dessia_common.typings import JsonSerializable
 from numpy.typing import NDArray
-from trimesh import Trimesh
 
 from OCP.BRep import BRep_Tool, BRep_Builder
 from OCP.TopoDS import (TopoDS, TopoDS_Shape, TopoDS_Shell, TopoDS_Face,
                         TopoDS_Solid, TopoDS_CompSolid, TopoDS_Compound, TopoDS_Builder)
+from OCP.BRepBuilderAPI import (BRepBuilderAPI_Sewing, BRepBuilderAPI_Copy, BRepBuilderAPI_Transformed,
+                                BRepBuilderAPI_RoundCorner, BRepBuilderAPI_RightCorner)
+from OCP.BRepAdaptor import (
+    BRepAdaptor_CompCurve
+)
 from OCP.BRepBuilderAPI import BRepBuilderAPI_Sewing, BRepBuilderAPI_MakeFace, BRepBuilderAPI_Copy
 from OCP.BRepPrimAPI import BRepPrimAPI_MakePrism, BRepPrimAPI_MakeWedge
 from OCP.TopTools import TopTools_IndexedMapOfShape
@@ -32,7 +30,6 @@ from OCP.BRepBndLib import BRepBndLib
 from OCP.BRepMesh import BRepMesh_IncrementalMesh
 from OCP.GProp import GProp_PGProps
 from OCP.BRepGProp import BRepGProp
-from OCP.BRepExtrema import BRepExtrema_DistShapeShape
 from OCP.BRepAlgoAPI import (BRepAlgoAPI_Fuse, BRepAlgoAPI_BooleanOperation, BRepAlgoAPI_Splitter,
                              BRepAlgoAPI_Cut, BRepAlgoAPI_Common)
 from OCP.BOPAlgo import BOPAlgo_GlueEnum, BOPAlgo_PaveFiller
@@ -51,18 +48,16 @@ from OCP.BRepPrimAPI import (
     BRepPrimAPI_MakeRevol,
     BRepPrimAPI_MakeSphere,
 )
+from OCP.BRepOffsetAPI import BRepOffsetAPI_MakePipeShell
+from OCP.Geom import Geom_Plane
+from OCP.gp import gp_Pnt, gp_Vec, gp_Ax2
 from OCP.TopLoc import TopLoc_Location
 
-from OCP.gp import gp_Ax2
-
-
 import volmdlr.core_compiled
-from volmdlr import curves, display, edges, surfaces, wires, geometry, faces as vm_faces
-from volmdlr.core import edge_in_list, get_edge_index_in_list, get_point_index_in_list
-from volmdlr.utils.step_writer import geometric_context_writer, product_writer, step_ids_to_str
-from volmdlr import from_ocp, to_ocp
+from volmdlr import display, edges, surfaces, wires, faces as vm_faces
+from volmdlr.core import edge_in_list
+from volmdlr import to_ocp
 from volmdlr.utils.ocp_helpers import plot_edge
-from volmdlr.utils.mesh_helpers import perform_decimation
 
 import OCP.TopAbs as top_abs  # Topology type enum
 from OCP.TopAbs import TopAbs_Orientation
@@ -129,17 +124,20 @@ def _make_wedge(
         zmax: float,
         point: volmdlr.Vector3D = volmdlr.O3D,
         direction: volmdlr.Vector3D = volmdlr.Z3D,
-        x_direction=volmdlr.X3D) -> BRepPrimAPI_MakeWedge:
+        x_direction: Optional[volmdlr.Vector3D] = None) -> BRepPrimAPI_MakeWedge:
     """
     Make a wedge builder.
 
     This is a private method and should not be used directlly. Please see Solid.make_wedge
     or Shell.make_wedge for details.
     """
-
+    frame = gp_Ax2()
+    frame.SetLocation(to_ocp.point3d_to_ocp(point))
+    frame.SetDirection(to_ocp.vector3d_to_ocp(direction, unit_vector=True))
+    if x_direction:
+        frame.SetXDirection(to_ocp.vector3d_to_ocp(x_direction, unit_vector=True))
     return BRepPrimAPI_MakeWedge(
-        gp_Ax2(to_ocp.point3d_to_ocp(point), to_ocp.vector3d_to_ocp(direction, unit_vector=True),
-               to_ocp.vector3d_to_ocp(x_direction, unit_vector=True)),
+        frame,
         dx,
         dy,
         dz,
@@ -148,6 +146,101 @@ def _make_wedge(
         xmax,
         zmax,
     )
+
+
+def _set_sweep_mode(
+        builder: BRepOffsetAPI_MakePipeShell,
+        path: Union[wires.Wire3D, edges.Edge],
+        mode: Union[volmdlr.Vector3D, wires.Wire3D, edges.Edge],
+) -> bool:
+    rotate = False
+
+    if isinstance(mode, volmdlr.Vector3D):
+        ocp_frame = gp_Ax2()
+        curve = BRepAdaptor_CompCurve(path)
+        umin = curve.FirstParameter()
+        ocp_frame.SetLocation(curve.Value(umin))
+        ocp_frame.SetDirection(to_ocp.vector3d_to_ocp(mode, unit_vector=True))
+        builder.SetMode(ocp_frame)
+        rotate = True
+    elif isinstance(mode, (wires.Wire3D, edges.Edge)):
+        builder.SetMode(mode, True)
+
+    return rotate
+
+
+_trans_mode_dict = {
+    "transformed": BRepBuilderAPI_Transformed,
+    "round": BRepBuilderAPI_RoundCorner,
+    "right": BRepBuilderAPI_RightCorner,
+}
+
+
+def _make_sweep(
+        face: vm_faces.PlaneFace3D,
+        path: Union[wires.Wire3D, edges.Edge],
+        make_solid: bool = True,
+        is_frenet: bool = False,
+        mode: Union[volmdlr.Vector3D, wires.Wire3D, edges.Edge, None] = None,
+        transition_mode: Literal["transformed", "round", "right"] = "transformed",
+) -> Union["Shell", "Solid"]:
+    """
+    Sweeps a plane face along a provided path to create a solid or shell.
+
+    :param face: A PlaneFace3D object representing the face to be swept.
+    :param path: A Wire3D or Edge object representing the path along which the face is to be swept.
+    :param make_solid: A boolean value indicating whether to return a Solid (True) or Shell (False). Default is True.
+    :param is_frenet: A boolean value indicating whether to use Frenet mode.
+     If True, the orientation of the profile is computed with respect to the Frenet trihedron. Default is False.
+    :param mode: An optional parameter that can be a Vector3D, Wire3D, Edge, or None.
+     This parameter provides additional sweep mode parameters. If it's a Vector3D, the direction of the vector is used
+     as the sweep direction. If it's a Wire3D or Edge, the sweep follows the path of the wire or edge.
+    :param transition_mode: A string indicating how to handle profile orientation at C1 path discontinuities.
+     Possible values are 'transformed', 'round', and 'right'. 'transformed' means the profile is automatically
+     transformed to make the sweeping path tangent continuous. 'round' means a round corner is built between the two
+    successive sections. 'right' means a right corner (intersection) is built between the two successive sections.
+    Default is 'transformed'.
+    :return: A Solid object resulting from the sweep operation.
+
+    Note: This is a private method and should not be used directly.
+    """
+    outer_wire = to_ocp.contour3d_to_ocp(contour3d=face.outer_contour3d)
+    inner_wires = [to_ocp.contour3d_to_ocp(contour3d=contour) for contour in face.inner_contours3d]
+
+    if isinstance(path, edges.Edge):
+        path = wires.Wire3D([path])
+
+    ocp_path = to_ocp.contour3d_to_ocp(path)
+
+    shapes = []
+    for wire in [outer_wire] + inner_wires:
+        builder = BRepOffsetAPI_MakePipeShell(ocp_path)
+
+        translate = False
+        rotate = False
+
+        # handle sweep mode
+        if mode:
+            rotate = _set_sweep_mode(builder, ocp_path, mode)
+        else:
+            builder.SetMode(is_frenet)
+
+        builder.SetTransitionMode(_trans_mode_dict[transition_mode])
+
+        builder.Add(wire, translate, rotate)
+
+        builder.Build()
+        if make_solid:
+            builder.MakeSolid()
+
+        shapes.append(Shape.cast(builder.Shape()))
+
+    swept_shape, inner_shapes = shapes[0], shapes[1:]
+
+    if inner_shapes:
+        swept_shape = swept_shape.subtraction(*inner_shapes)
+
+    return swept_shape[0]
 
 
 class Shape(volmdlr.core.Primitive3D):
@@ -571,7 +664,8 @@ class Shell(Shape):
                    zmax: float,
                    local_frame_origin: volmdlr.Point3D = volmdlr.O3D,
                    local_frame_direction: volmdlr.Vector3D = volmdlr.Z3D,
-                   local_frame_x_direction: volmdlr.Vector3D = volmdlr.X3D,
+                   local_frame_x_direction: Optional[volmdlr.Vector3D] = None,
+                   name: str = ""
                    ) -> "Shell":
         """
         Creates a wedge, which can represent a pyramid or a truncated pyramid.
@@ -604,6 +698,8 @@ class Shell(Shape):
         :param local_frame_x_direction: The x direction for the local coordinate system of the wedge.
          Defaults to the x-axis (1, 0, 0).
         :type local_frame_x_direction: volmdlr.Vector3D
+        :param name: (Optional) Shape name.
+        :type name: str
 
         :return: The created wedge.
         :rtype: Shell
@@ -635,11 +731,64 @@ class Shell(Shape):
 
         return cls(obj=BRepPrimAPI_MakePrism(ocp_wire, extrusion_vector).Shape(), name=name)
 
+    @classmethod
+    def make_sweep(
+            cls,
+            section: volmdlr.wires.Contour2D,
+            path: Union[wires.Wire3D, edges.Edge],
+            starting_frame: Optional[volmdlr.Frame3D] = None,
+            is_frenet: bool = False,
+            mode: Union[volmdlr.Vector3D, wires.Wire3D, edges.Edge, None] = None,
+            transition_mode: Literal["transformed", "round", "right"] = "transformed",
+            name: str = ""
+    ) -> "Shell":
+        """
+        Class method to create a Shell object by sweeping a contour along a provided path.
+
+        :param section: A Contour2D object representing the section to be swept.
+        :param path: A Wire3D or Edge object representing the path along which the section is to be swept.
+        :param starting_frame: An optional Frame3D object representing the starting frame of the sweep. If None, the
+         starting frame is computed based on the path.
+        :param is_frenet: A boolean value indicating whether to use Frenet mode. If True, the orientation of the
+         profile is computed with respect to the Frenet trihedron. Default is False.
+        :param mode: An optional parameter that can be a Vector3D, Wire3D, Edge, or None. This parameter provides
+         additional sweep mode parameters. If it's a Vector3D, the direction of the vector is used as the sweep
+         direction. If it's a Wire3D or Edge, the sweep follows the path of the wire or edge.
+        :param transition_mode: A string indicating how to handle profile orientation at C1 path discontinuities.
+         Possible values are 'transformed', 'round', and 'right'. 'transformed' means the profile is automatically
+         transformed to make the sweeping path tangent continuous. 'round' means a round corner is built between the
+         two successive sections. 'right' means a right corner (intersection) is built between the two successive
+         sections. Default is 'transformed'.
+        :param name: An optional string to name the Shell object.
+        :return: A Shell object resulting from the sweep operation.
+        """
+        if starting_frame is None:
+            if isinstance(path, volmdlr.wires.Wire3D):
+                origin = path.primitives[0].start
+                w = path.primitives[0].unit_direction_vector(0.)
+                u = path.primitives[0].unit_normal_vector(0.)
+            else:
+                origin = path.start
+                w = path.unit_direction_vector(0.)
+                u = path.unit_normal_vector(0.)
+            if not u:
+                u = w.deterministic_unit_normal_vector()
+            v = w.cross(u)
+            starting_frame = volmdlr.Frame3D(origin, u, v, w)
+        face = vm_faces.PlaneFace3D(surface3d=surfaces.Plane3D(starting_frame),
+                                    surface2d=surfaces.Surface2D(outer_contour=section,
+                                                                 inner_contours=[]))
+        shell = _make_sweep(face=face, path=path, make_solid=True, is_frenet=is_frenet,
+                                   mode=mode, transition_mode=transition_mode)
+        shell.name = name
+        return shell
+
 
 class Solid(Shape):
     """
     A single solid.
     """
+    
     @classmethod
     def make_solid(cls, shell: Shell) -> "Solid":
         """
@@ -656,6 +805,14 @@ class Solid(Shape):
         shape_set = TopTools_IndexedMapOfShape()
         TopExp.MapShapes_s(self.wrapped, top_abs.TopAbs_SHELL, shape_set)
         return [Shell(obj=shape) for shape in shape_set]
+
+    @classmethod
+    def make_solid(cls, shell: Shell) -> "Solid":
+        """
+        Makes a solid from a single shell.
+        """
+
+        return cls(ShapeFix_Solid().SolidFromShell(shell.wrapped))
 
     @classmethod
     def make_wedge(cls,
@@ -869,6 +1026,188 @@ class Solid(Shape):
                 math.radians(angle_degrees3),
             ).Shape()
         )
+
+    @classmethod
+    def make_wedge(cls,
+                   dx: float,
+                   dy: float,
+                   dz: float,
+                   xmin: float,
+                   zmin: float,
+                   xmax: float,
+                   zmax: float,
+                   local_frame_origin: volmdlr.Point3D = volmdlr.O3D,
+                   local_frame_direction: volmdlr.Vector3D = volmdlr.Z3D,
+                   local_frame_x_direction: Optional[volmdlr.Vector3D] = None,
+                   name: str = ""
+                   ) -> "Solid":
+        """
+        Creates a wedge, which can represent a pyramid or a truncated pyramid.
+
+        The origin of the local coordinate system is the corner of the base rectangle of the wedge.
+        The y-axis represents the "height" of the pyramid or truncated pyramid.
+
+        To create a pyramid, specify xmin=xmax=dx/2 and zmin=zmax=dz/2.
+
+        :param dx: The length of the base rectangle along the x-axis.
+        :type dx: float
+        :param dy: The height of the pyramid or truncated pyramid along the y-axis.
+        :type dy: float
+        :param dz: The width of the base rectangle along the z-axis.
+        :type dz: float
+        :param xmin: The x-coordinate of one corner of the top rectangle.
+        :type xmin: float
+        :param zmin: The z-coordinate of one corner of the top rectangle.
+        :type zmin: float
+        :param xmax: The x-coordinate of the opposite corner of the top rectangle.
+        :type xmax: float
+        :param zmax: The z-coordinate of the opposite corner of the top rectangle.
+        :type zmax: float
+        :param local_frame_origin: The origin of the local coordinate system for the wedge.
+         Defaults to the origin (0, 0, 0).
+        :type local_frame_origin: volmdlr.Point3D
+        :param local_frame_direction: The main direction for the local coordinate system of the wedge.
+         Defaults to the z-axis (0, 0, 1).
+        :type local_frame_direction: volmdlr.Vector3D
+        :param local_frame_x_direction: The x direction for the local coordinate system of the wedge.
+         Defaults to the x-axis (1, 0, 0).
+        :type local_frame_x_direction: volmdlr.Vector3D
+        :param name: (Optional) Shape name.
+        :type name: str
+
+        :return: The created wedge.
+        :rtype: Solid
+
+        Example:
+        To create a pyramid with a square base of size 1 and where its apex is located at
+        volmdlr.Point3D(0.0, 0.0, 2.0):
+        >>> dx, dy, dz = 1, 2, 1
+        >>> wedge = Solid.make_wedge(dx=dx, dy=dy, dz=dz, xmin=dx / 2, xmax=dx / 2, zmin=dz / 2, zmax=dz / 2,
+        >>>                                 local_frame_origin=volmdlr.Point3D(-0.5, 0.5, 0.0),
+        >>>                                 local_frame_direction=-volmdlr.Y3D,
+        >>>                                 local_frame_x_direction=volmdlr.X3D)
+
+        """
+
+        return cls(obj=_make_wedge(dx=dx, dy=dy, dz=dz, xmin=xmin, zmin=zmin, xmax=xmax, zmax=zmax,
+                                   point=local_frame_origin,
+                                   direction=local_frame_direction,
+                                   x_direction=local_frame_x_direction).Solid(), name=name)
+
+    @classmethod
+    def make_extrusion(cls, face: Union[vm_faces.PlaneFace3D, Geom_Plane],
+                       extrusion_length: float, name: str = '') -> "Solid":
+        """
+        Returns a solid generated by the extrusion of a plane face.
+        """
+        ocp_face = face
+        if isinstance(ocp_face, vm_faces.PlaneFace3D):
+            ocp_face = face.to_ocp()
+        extrusion_vector = to_ocp.vector3d_to_ocp(face.surface3d.frame.w * extrusion_length)
+        solid = BRepPrimAPI_MakePrism(ocp_face, extrusion_vector)
+        return cls(obj=solid.Shape(), name=name)
+
+    @classmethod
+    def make_extrusion_from_frame_and_wires(cls, frame: volmdlr.Frame3D,
+                                            outer_contour2d: volmdlr.wires.Contour2D,
+                                            inner_contours2d: List[volmdlr.wires.Contour2D],
+                                            extrusion_length: float, name: str = '') -> "Solid":
+        """
+        Returns a solid generated by the extrusion of a plane face.
+        """
+        face = vm_faces.PlaneFace3D(surface3d=surfaces.Plane3D(frame),
+                                    surface2d=surfaces.Surface2D(outer_contour2d, inner_contours2d))
+
+        solid = Solid.make_extrusion(face=face, extrusion_length=extrusion_length)
+
+        return cls(obj=solid.wrapped, name=name)
+
+    @classmethod
+    def make_sweep(
+            cls,
+            face: vm_faces.PlaneFace3D,
+            path: Union[wires.Wire3D, edges.Edge],
+            is_frenet: bool = False,
+            mode: Union[volmdlr.Vector3D, wires.Wire3D, edges.Edge, None] = None,
+            transition_mode: Literal["transformed", "round", "right"] = "transformed",
+            name: str = ""
+    ) -> "Solid":
+        """
+        Class method to create a Solid object by sweeping a plane face along a provided path.
+
+        :param face: A PlaneFace3D object representing the face to be swept.
+        :param path: A Wire3D or Edge object representing the path along which the face is to be swept.
+        :param is_frenet: A boolean value indicating whether to use Frenet mode. If True, the orientation of the
+         profile is computed with respect to the Frenet trihedron. Default is False.
+        :param mode: An optional parameter that can be a Vector3D, Wire3D, Edge, or None.
+         This parameter provides additional sweep mode parameters. If it's a Vector3D, the direction of the vector is
+         used as the sweep direction. If it's a Wire3D or Edge, the sweep follows the path of the wire or edge.
+        :param transition_mode: A string indicating how to handle profile orientation at C1 path discontinuities.
+         Possible values are 'transformed', 'round', and 'right'. 'transformed' means the profile is automatically
+         transformed to make the sweeping path tangent continuous. 'round' means a round corner is built between the
+         two successive sections. 'right' means a right corner (intersection) is built between the two successive
+         sections. Default is 'transformed'.
+        :param name: An optional string to name the Solid object.
+        :return: A Solid object resulting from the sweep operation.
+        """
+        solid = _make_sweep(face=face, path=path, make_solid=True, is_frenet=is_frenet,
+                                   mode=mode, transition_mode=transition_mode)
+        solid.name = name
+        return solid
+
+    @classmethod
+    def make_sweep_from_contour(
+            cls,
+            section: volmdlr.wires.Contour2D,
+            path: Union[wires.Wire3D, edges.Edge],
+            inner_contours: Optional[List[volmdlr.wires.Contour2D]] = None,
+            starting_frame: Optional[volmdlr.Frame3D] = None,
+            is_frenet: bool = False,
+            mode: Union[volmdlr.Vector3D, wires.Wire3D, edges.Edge, None] = None,
+            transition_mode: Literal["transformed", "round", "right"] = "transformed",
+            name: str = ""
+    ) -> "Solid":
+        """
+        Class method to create a Solid object by sweeping a contour along a provided path.
+
+        :param section: A Contour2D object representing the section to be swept.
+        :param path: A Wire3D or Edge object representing the path along which the section is to be swept.
+        :param inner_contours: A list of Contour2D objects representing the inner contours of the section.
+        :param starting_frame: An optional Frame3D object representing the starting frame of the sweep.
+         If None, the starting frame is computed based on the path.
+        :param is_frenet: A boolean value indicating whether to use Frenet mode. If True, the orientation of the
+         profile is computed with respect to the Frenet trihedron. Default is False.
+        :param mode: An optional parameter that can be a Vector3D, Wire3D, Edge, or None. This parameter provides
+         additional sweep mode parameters. If it's a Vector3D, the direction of the vector is used as the sweep
+         direction. If it's a Wire3D or Edge, the sweep follows the path of the wire or edge.
+        :param transition_mode: A string indicating how to handle profile orientation at C1 path discontinuities.
+         Possible values are 'transformed', 'round', and 'right'. 'transformed' means the profile is automatically
+         transformed to make the sweeping path tangent continuous. 'round' means a round corner is built between the
+         two successive sections. 'right' means a right corner (intersection) is built between the two successive
+         sections. Default is 'transformed'.
+        :param name: An optional string to name the Solid object.
+        :return: A Solid object resulting from the sweep operation.
+        """
+        if starting_frame is None:
+            if isinstance(path, volmdlr.wires.Wire3D):
+                origin = path.primitives[0].start
+                w = path.primitives[0].unit_direction_vector(0.)
+                u = path.primitives[0].unit_normal_vector(0.)
+            else:
+                origin = path.start
+                w = path.unit_direction_vector(0.)
+                u = path.unit_normal_vector(0.)
+            if not u:
+                u = w.deterministic_unit_normal_vector()
+            v = w.cross(u)
+            starting_frame = volmdlr.Frame3D(origin, u, v, w)
+        if inner_contours is None:
+            inner_contours = []
+        face = vm_faces.PlaneFace3D(surface3d=surfaces.Plane3D(starting_frame),
+                                    surface2d=surfaces.Surface2D(outer_contour=section,
+                                                                 inner_contours=inner_contours))
+        return cls.make_sweep(face=face, path=path, is_frenet=is_frenet, mode=mode, transition_mode=transition_mode,
+                              name=name)
 
 
 class CompSolid(Shape):
