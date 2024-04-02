@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New module model.py to hold VolumeModel object.
 
 #### shapes.py
-- Shape: volume, bounding_box
+- Shape: volume, bounding_box, distance, distance_points
 - Shape: add boolean operations: subtraction, union, intersection
 - Shell constructors: make_extrusion, make_wedge, make_sweep, make_revolve, make_loft
 - Solid constructors: make_extrusion, make_extrusion_from_frame_and_wires, make_wedge, make_sweep, make_revolve, make_loft

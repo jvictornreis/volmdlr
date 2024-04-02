@@ -43,6 +43,16 @@ class TestSolid(unittest.TestCase):
         from_brep = shapes.Solid.from_brep(objects_folder + "/test_to_brep.brep")
         self.assertEqual(from_brep, self.solid1)
 
+    def test_distance(self):
+        faces2 = [f.translation(volmdlr.Vector3D(2, 3, 4)) for f in self.faces_list]
+        shell = shapes.Shell.from_faces(faces=faces2)
+        solid2 = shapes.Solid.make_solid(shell)
+        distance = self.solid1.distance(solid2)
+        self.assertAlmostEqual(distance, 2.23606797749979)
+        point1, point2 = self.solid1.distance_points(solid2)
+        self.assertEqual(point2, volmdlr.Point3D(1.0, 2.0, 3.0))
+        self.assertEqual(point1, volmdlr.Point3D(1.0, 1.0, 1.0))
+
     def test_union(self):
         union = self.solid1.union(self.solid2)[0]
         self.assertAlmostEqual(union.volume(), 15)
