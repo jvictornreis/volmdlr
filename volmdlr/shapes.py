@@ -52,11 +52,12 @@ from OCP.BRepOffsetAPI import BRepOffsetAPI_MakePipeShell
 from OCP.Geom import Geom_Plane
 from OCP.gp import gp_Pnt, gp_Vec, gp_Ax2
 from OCP.TopLoc import TopLoc_Location
+from OCP.BRepExtrema import BRepExtrema_DistShapeShape
 
 import volmdlr.core_compiled
 from volmdlr import display, edges, surfaces, wires, faces as vm_faces
 from volmdlr.core import edge_in_list
-from volmdlr import to_ocp
+from volmdlr import to_ocp, from_ocp
 from volmdlr.utils.ocp_helpers import plot_edge
 
 import OCP.TopAbs as top_abs  # Topology type enum
@@ -442,6 +443,24 @@ class Shape(volmdlr.core.Primitive3D):
         BRepGProp.VolumeProperties_s(self.wrapped, prop, tol)
         return abs(prop.Mass())
 
+    def distance(self, other: "Shape") -> float:
+        """
+        Minimal distance between two shapes.
+
+        :param other: other shape to calculate distance with.
+        """
+        return BRepExtrema_DistShapeShape(self.wrapped, other.wrapped).Value()
+
+    def distance_points(self, other: "Shape"):
+        """
+        Minimal distance points between two shapes.
+
+        :param other: other shape to calculate distance with.
+        """
+        brep_extrema = BRepExtrema_DistShapeShape(self.wrapped, other.wrapped)
+        return (from_ocp.point3d_from_ocp(brep_extrema.PointOnShape1(N=1)),
+                from_ocp.point3d_from_ocp(brep_extrema.PointOnShape2(N=1)))
+
     def _bool_op(
             self,
             args: Iterable["Shape"],
@@ -788,14 +807,6 @@ class Solid(Shape):
     """
     A single solid.
     """
-    
-    @classmethod
-    def make_solid(cls, shell: Shell) -> "Solid":
-        """
-        Makes a solid from a single shell.
-        """
-
-        return cls(ShapeFix_Solid().SolidFromShell(shell.wrapped))
 
     @property
     def primitives(self) -> List[Shell]:
