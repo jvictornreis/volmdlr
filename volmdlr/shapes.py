@@ -16,15 +16,10 @@ from OCP.BRep import BRep_Tool, BRep_Builder
 from OCP.TopoDS import (TopoDS, TopoDS_Shape, TopoDS_Shell, TopoDS_Face,
                         TopoDS_Solid, TopoDS_CompSolid, TopoDS_Compound, TopoDS_Builder)
 from OCP.BRepBuilderAPI import (BRepBuilderAPI_Sewing, BRepBuilderAPI_Copy, BRepBuilderAPI_Transformed,
-                                BRepBuilderAPI_RoundCorner, BRepBuilderAPI_RightCorner)
+                                BRepBuilderAPI_RoundCorner, BRepBuilderAPI_RightCorner, BRepBuilderAPI_MakeFace)
 from OCP.BRepAdaptor import (
     BRepAdaptor_CompCurve
 )
-from OCP.BRepBuilderAPI import BRepBuilderAPI_Sewing, BRepBuilderAPI_MakeFace, BRepBuilderAPI_Copy
-from OCP.BRepPrimAPI import BRepPrimAPI_MakePrism, BRepPrimAPI_MakeWedge
-from OCP.TopTools import TopTools_IndexedMapOfShape
-from OCP.TopExp import TopExp
-from OCP.Geom import Geom_Plane
 from OCP.Bnd import Bnd_Box
 from OCP.BRepBndLib import BRepBndLib
 from OCP.BRepMesh import BRepMesh_IncrementalMesh
@@ -50,7 +45,7 @@ from OCP.BRepPrimAPI import (
 )
 from OCP.BRepOffsetAPI import BRepOffsetAPI_MakePipeShell
 from OCP.Geom import Geom_Plane
-from OCP.gp import gp_Pnt, gp_Vec, gp_Ax2
+from OCP.gp import gp_Pnt, gp_Vec, gp_Ax2, gp_Ax1
 from OCP.TopLoc import TopLoc_Location
 
 import volmdlr.core_compiled
