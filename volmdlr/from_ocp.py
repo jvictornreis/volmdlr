@@ -421,6 +421,12 @@ def surfaceofrevolution_from_ocp(cls, occt_surface, **kwargs):
                                                           occt_curve)
     axis_point = point3d_from_ocp(occt_surface.Axis().Location())
     axis_direction = vector3d_from_ocp(occt_surface.Axis().Direction())
+    if curve.__class__.__name__ == "Circle3D":
+        start_end = curve.center + curve.frame.u * curve.radius
+        curve = curve.trim(point1=start_end, point2=start_end)
+    elif curve.__class__.__name__ == "Ellipse3D":
+        start_end = curve.center + curve.frame.u * curve.major_axis
+        curve = curve.trim(point1=start_end, point2=start_end)
     return cls(curve, axis_point, axis_direction)
 
 

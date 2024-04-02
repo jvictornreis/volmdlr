@@ -1,10 +1,14 @@
 import os
 import math
 import unittest
+
 from dessia_common.core import DessiaObject
+
 from OCP.TopoDS import TopoDS_Solid
+
 import volmdlr
-from volmdlr import faces, surfaces, shapes, wires, curves
+from volmdlr import curves, faces, shapes, surfaces, wires, primitives3d
+
 
 folder = os.path.join(os.path.dirname(os.path.realpath(__file__)))
 objects_folder = os.path.join(os.path.dirname(os.path.realpath(__file__)), "shapes_objects")
@@ -21,9 +25,9 @@ class TestSolid(unittest.TestCase):
             face = faces.PlaneFace3D.from_surface_rectangular_cut(plane, -1, 1, -1, 1)
             faces_list.append(face)
 
-    solid1 = shapes.Solid.make_solid(shapes.Shell(faces=faces_list))
+    solid1 = shapes.Solid.make_solid(shapes.Shell.from_faces(faces=faces_list))
     faces2 = [f.translation(volmdlr.Vector3D(1, 1, 1)) for f in faces_list]
-    solid2 = shapes.Solid.make_solid(shapes.Shell(faces=faces2))
+    solid2 = shapes.Solid.make_solid(shapes.Shell.from_faces(faces=faces2))
 
     def test_check_platform(self):
         self.assertIsNone(self.solid1._check_platform())
@@ -49,6 +53,28 @@ class TestSolid(unittest.TestCase):
     def test_intersection(self):
         intersection = self.solid1.intersection(self.solid2)[0]
         self.assertAlmostEqual(intersection.volume(), 1.0)
+
+    def test_box(self):
+        box = shapes.Solid.make_box(length=2, width=3, height=5)
+        self.assertEqual(box.volume(), 2 * 3 * 5)
+
+    def test_cone(self):
+        cone = shapes.Solid.make_cone(radius1=0, radius2=5, height=5, direction=volmdlr.X3D, angle_degrees=270)
+        self.assertAlmostEqual(cone.volume(), 98.1747704332957)
+
+    def test_cylinder(self):
+        cylinder = shapes.Solid.make_cylinder(radius=5, height=5, direction=volmdlr.X3D, angle_degrees=270)
+        self.assertAlmostEqual(cylinder.volume(), 294.5243112989299)
+
+    def test_sphere(self):
+        sphere1 = shapes.Solid.make_sphere(radius=5, direction=volmdlr.X3D, angle_degrees1=-90,
+                                           angle_degrees2=60, angle_degrees3=270)
+        self.assertAlmostEqual(sphere1.volume(), 387.6486925590814)
+
+    def test_torus(self):
+        torus1 = shapes.Solid.make_torus(radius1=2, radius2=.5, direction=volmdlr.X3D, angle_degrees1=0,
+                                         angle_degrees2=360)
+        self.assertAlmostEqual(torus1.volume(), 9.869604401089358)
 
     def test_make_extrusion(self):
         length, width, height, radius = 0.4, 0.3, 0.08, 0.1
@@ -77,27 +103,25 @@ class TestSolid(unittest.TestCase):
 
         self.assertAlmostEqual(solid.volume(), (1 / 3) * dy * (1 + 0.5 ** 2 + 0.5))
 
-    def test_box(self):
-        box = shapes.Solid.make_box(length=2, width=3, height=5)
-        self.assertEqual(box.volume(), 2 * 3 * 5)
+    def test_sweep(self):
+        point1, point2 = volmdlr.Point3D(1.0, 1.0, 0.0), volmdlr.Point3D(1.0, 0.5, 0.0)
+        point3 = volmdlr.Point3D(0.5, 0.5, 0.0)
+        path = primitives3d.OpenRoundedLineSegments3D([point1, point2, point3], {"1": 0.2})
+        outer_contour = wires.Contour2D.from_circle(curves.Circle2D(volmdlr.OXY, 0.05))
+        inner_contours = [wires.Contour2D.from_circle(curves.Circle2D(volmdlr.OXY, 0.045))]
+        direction = (point2 - point1).unit_vector()
+        frame = volmdlr.Frame3D.from_point_and_vector(point=point1, vector=direction, main_axis=volmdlr.Z3D)
+        section = faces.PlaneFace3D(surface3d=surfaces.Plane3D(frame=frame),
+                                    surface2d=surfaces.Surface2D(outer_contour=outer_contour, inner_contours=inner_contours))
+        sweep = shapes.Solid.make_sweep_from_contour(outer_contour, path, inner_contours)
+        self.assertEqual(len(sweep.primitives[0].primitives), 8)
 
-    def test_cone(self):
-        cone = shapes.Solid.make_cone(radius1=0, radius2=5, height=5, direction=volmdlr.X3D, angle_degrees=270)
-        self.assertAlmostEqual(cone.volume(), 98.1747704332957)
+        path = wires.Wire3D.from_points([point1, point2, point3])
+        sweep1 = shapes.Solid.make_sweep(face=section, path=path, transition_mode="right")
+        self.assertEqual(len(sweep1.primitives[0].primitives), 6)
+        sweep2 = shapes.Solid.make_sweep(face=section, path=path, transition_mode="round")
+        self.assertEqual(len(sweep2.primitives[0].primitives), 10)
 
-    def test_cylinder(self):
-        cylinder = shapes.Solid.make_cylinder(radius=5, height=5, direction=volmdlr.X3D, angle_degrees=270)
-        self.assertAlmostEqual(cylinder.volume(), 294.5243112989299)
-
-    def test_sphere(self):
-        sphere1 = shapes.Solid.make_sphere(radius=5, direction=volmdlr.X3D, angle_degrees1=-90,
-                                           angle_degrees2=60, angle_degrees3=270)
-        self.assertAlmostEqual(sphere1.volume(), 387.6486925590814)
-
-    def test_torus(self):
-        torus1 = shapes.Solid.make_torus(radius1=2, radius2=.5, direction=volmdlr.X3D, angle_degrees1=0,
-                                         angle_degrees2=360)
-        self.assertAlmostEqual(torus1.volume(), 9.869604401089358)
 
     def test_loft(self):
         diameter = 0.3
@@ -116,8 +140,8 @@ class TestSolid(unittest.TestCase):
         self.assertIsInstance(loft.wrapped, TopoDS_Solid)
 
         section2 = wires.Contour3D.from_points([volmdlr.Point3D(0.0, -0.1, 0.3), volmdlr.Point3D(0.05, -0.05, 0.3),
-                                              volmdlr.Point3D(0.05, 0.05, 0.3), volmdlr.Point3D(0.0, 0.1, 0.3),
-                                              volmdlr.Point3D(-0.05, 0.05, 0.3), volmdlr.Point3D(-0.05, -0.05, 0.3)])
+                                                volmdlr.Point3D(0.05, 0.05, 0.3), volmdlr.Point3D(0.0, 0.1, 0.3),
+                                                volmdlr.Point3D(-0.05, 0.05, 0.3), volmdlr.Point3D(-0.05, -0.05, 0.3)])
 
         sections = [wires.Contour3D.from_circle(circle1), section2, volmdlr.Point3D(0.0, 0.0, 0.45)]
         loft = shapes.Solid.make_loft(sections=sections, ruled=True)
