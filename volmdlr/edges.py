@@ -2167,25 +2167,22 @@ class BSplineCurve(Edge):
 
         for i in range(number_of_arcs):
             common_control_point = arc.point_at_abscissa((i + 1) * individual_arc_angle * arc.radius)
-            vector_start = (control_points[i * 2] - arc.center)
-            vector_end = (common_control_point - arc.center)
+            vector_start = control_points[i * 2] - arc.center
+            vector_end = common_control_point - arc.center
             vector_control_point = (vector_end + vector_start) * (1 / (2 * math.cos(individual_arc_angle / 2) ** 2))
-            control_points.insert(i * 2 + 1, arc.center + vector_control_point)
-            control_points.insert(i * 2 + 2, common_control_point)
-
-            weights.insert(i * 2 + 1, weight)
-            weights.insert(i * 2 + 2, 1.)
+            control_points.extend([arc.center + vector_control_point, common_control_point])
+            weights.extend([weight, 1.0])
 
             if i != number_of_arcs - 1:
-                knots.insert(i + 1, (i + 1) / number_of_arcs)
-                knot_multiplicities.insert(i + 1, 2)
+                knots.append((i + 1) / number_of_arcs)
+                knot_multiplicities.append(2)
 
         knots.append(1.)
         knot_multiplicities.append(3)
         return control_points, knot_multiplicities, knots, weights
 
     @classmethod
-    def arc_to_nurbs(cls, arc):
+    def from_arc(cls, arc):
         """
         Given an arc, return an equivalent NURBS line.
 
@@ -2193,9 +2190,9 @@ class BSplineCurve(Edge):
         :return: BSplineCurve2D or BSplineCurve3D
         """
         control_points, knot_multiplicities, knots, weights = cls.arc_to_nurbs_parameters(arc)
-        if isinstance(arc, Arc3D):
-            return BSplineCurve3D(2, control_points, knot_multiplicities, knots, weights)
-        return BSplineCurve2D(2, control_points, knot_multiplicities, knots, weights)
+        if arc.__class__.__name__[-2:] == "3D":
+            return cls(2, control_points, knot_multiplicities, knots, weights)
+        return cls(2, control_points, knot_multiplicities, knots, weights)
 
 
 class BSplineCurve2D(BSplineCurve):

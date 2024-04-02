@@ -76,9 +76,9 @@ class TestBSplineCurve(unittest.TestCase):
             self.assertAlmostEqual(knot3d, expected_knot3d)
             self.assertAlmostEqual(knot_multiplicity3d, expected_knot_multiplicity3d)
 
-    def test_arc_to_nurbs(self):
+    def test_from_arc(self):
         arc = vme.Arc2D.from_3_points(volmdlr.Point2D(0, 0.3), volmdlr.Point2D(1, -0.3), volmdlr.Point2D(2, 2))
-        bspline2D = vme.BSplineCurve.arc_to_nurbs(arc)
+        bspline2d = vme.BSplineCurve2D.from_arc(arc)
 
         expected_ctrlpts = [
             volmdlr.Point2D(0.0, 0.3), volmdlr.Point2D(0.4578268848009306, -0.4077103355939562),
@@ -94,7 +94,9 @@ class TestBSplineCurve(unittest.TestCase):
         expected_bspline2d = vme.BSplineCurve2D(2, expected_ctrlpts, expected_knot_multiplicities,
                                                 expected_knots, expected_weights)
 
-        self.assertTrue(bspline2D.is_close(expected_bspline2d))
+        self.assertTrue(bspline2d.is_close(expected_bspline2d))
+        for point in bspline2d.discretization_points(number_points=10):
+            self.assertEqual(arc.point_distance(point), 0.0)
 
         vector1 = volmdlr.Vector3D(1, 1, 1)
         vector1 = vector1.unit_vector()
@@ -104,7 +106,7 @@ class TestBSplineCurve(unittest.TestCase):
         arc3d = vme.Arc3D(circle3d, start=volmdlr.Point3D(0.5773502691896258, 0.5773502691896258, 0.5773502691896258),
                           end=volmdlr.Point3D(-0.9855985596534886, -0.11957315586905026, -0.11957315586905026))
 
-        bspline3D = vme.BSplineCurve.arc_to_nurbs(arc3d)
+        bspline3d = vme.BSplineCurve3D.from_arc(arc3d)
 
         expected_ctrlpts3d = [
             volmdlr.Point3D(0.5773502691896258, 0.5773502691896258, 0.5773502691896258),
@@ -121,7 +123,9 @@ class TestBSplineCurve(unittest.TestCase):
         expected_bspline3d = vme.BSplineCurve3D(2, expected_ctrlpts3d, expected_knot_multiplicities3d,
                                                 expected_knots3d, expected_weights3d)
 
-        self.assertTrue(bspline3D.is_close(expected_bspline3d))
+        self.assertTrue(bspline3d.is_close(expected_bspline3d))
+        for point in bspline3d.discretization_points(number_points=10):
+            self.assertEqual(arc3d.point_distance(point), 0.0)
 
 
 class TestBSplineCurve2D(unittest.TestCase):
