@@ -13,8 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### shapes.py
 - Shape: volume, bounding_box
 - Shape: add boolean operations: subtraction, union, intersection
-- Shell constructors: make_extrusion, make_wedge, make_sweep, make_revolve
-- Solid constructors: make_extrusion, make_extrusion_from_frame_and_wires, make_wedge, make_sweep, make_revolve
+- Shell constructors: make_extrusion, make_wedge, make_sweep, make_revolve, make_loft
+- Solid constructors: make_extrusion, make_extrusion_from_frame_and_wires, make_wedge, make_sweep, make_revolve, make_loft
 - Shape: to_dict, dict_to_object, to_brep, from_brep, from_brep_stream, to_brep_stream, 
 - Solid: make_box, make_cone, make_cylinder, make_torus, make_sphere methods.
 

@@ -5609,6 +5609,18 @@ class BezierCurve3D(BSplineCurve3D):
                                 knot_multiplicity, knotvector,
                                 None, name)
 
+    def get_reverse(self):
+        """
+        Reverses the Bezier's direction by reversing its control points.
+
+        :return: A reversed B-Spline curve.
+        :rtype: :class:`volmdlr.edges.BSplineCurve`.
+        """
+        return self.__class__(
+            degree=self.degree,
+            control_points=self.control_points[::-1]
+        )
+
 
 class Arc3D(ArcMixin, Edge):
     """
