@@ -7,6 +7,7 @@ from dessia_common.core import DessiaObject
 from OCP.TopoDS import TopoDS_Solid
 
 import volmdlr
+from volmdlr.models.contours import rim_contour, w, wb, R, Rb, th
 from volmdlr import curves, faces, shapes, surfaces, wires, primitives3d
 
 
@@ -122,6 +123,21 @@ class TestSolid(unittest.TestCase):
         sweep2 = shapes.Solid.make_sweep(face=section, path=path, transition_mode="round")
         self.assertEqual(len(sweep2.primitives[0].primitives), 10)
 
+    def test_make_revolve(self):
+        inner_contours = [wires.Contour2D.from_circle(
+            curves.Circle2D.from_center_and_radius(volmdlr.Point2D(-0.5 * (w - wb), Rb - 0.15 * (Rb - (R - th))),
+                                                   radius=0.5 * th))]
+        y = volmdlr.X3D.random_unit_normal_vector()
+        z = volmdlr.X3D.cross(y)
+        axis_point = 0.5 * volmdlr.X3D.to_point()
+        frame = volmdlr.Frame3D(axis_point, volmdlr.X3D, z, y)
+        revolution_shape = shapes.Solid.make_revolve_from_contour(frame=frame, contour2d=rim_contour,
+                                                                  axis_point=axis_point, axis=volmdlr.X3D,
+                                                                  inner_contours=inner_contours,
+                                                                  angle=3.1415, name="Conical rim")
+        self.assertEqual(revolution_shape.name, "Conical rim")
+        self.assertEqual(len(revolution_shape.primitives[0].primitives), 11)
+        self.assertIsInstance(revolution_shape.wrapped, TopoDS_Solid)
 
     def test_loft(self):
         diameter = 0.3
