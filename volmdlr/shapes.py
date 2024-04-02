@@ -180,7 +180,6 @@ class Shape(volmdlr.core.Primitive3D):
     """
     _non_serializable_attributes = ["obj"]
     _non_data_eq_attributes = ['wrapped', 'name', 'color', 'alpha']
-    wrapped: TopoDS_Shape
 
     def __init__(self, obj: TopoDS_Shape, name: str = ""):
         self.wrapped = downcast(obj)
@@ -541,29 +540,6 @@ class Shell(Shape):
     OCP shell wrapped.
 
     """
-
-    wrapped: TopoDS_Shell
-
-    @overload
-    def __init__(self, obj: TopoDS_Shell, name: str = '') -> None:
-        ...
-
-    @overload
-    def __init__(self, faces: List[TopoDS_Face], name: str = '') -> None:
-        ...
-
-    @overload
-    def __init__(self, faces: List[vm_faces.Face3D], name: str = '') -> None:
-        ...
-
-    def __init__(self, faces: List[vm_faces.Face3D] = None, name: str = '', obj=None):
-        self._faces = None
-        if faces:
-            obj = self._from_faces(faces)
-            if isinstance(faces[0], vm_faces.Face3D):
-                self._faces = faces
-        Shape.__init__(self, obj, name=name)
-
     @staticmethod
     def _from_faces(faces):
         """
@@ -583,24 +559,23 @@ class Shell(Shape):
         shell_builder.Perform()
         return shell_builder.SewedShape()
 
+    @classmethod
+    def from_faces(cls, faces, name: str = ''):
+        """
+        Creates a Shell from a list of faces.
+
+        :param faces: list of faces to create a shell.
+        :param name: name to be given to new shell.
+        :return: A new Shell object.
+        """
+        return cls(obj=cls._from_faces(faces), name=name)
+
     @property
     def is_closed(self):
         """
         Returns True if shell is a closed shell and False otherwise.
         """
         return self.wrapped.Closed()
-
-    @property
-    def faces(self):
-        """Get shell's volmdlr faces."""
-        if not self._faces:
-            pass
-            # self._faces = [from_ocp. for face in self._get_faces(self.wrapped)]
-        return self._faces
-
-    @faces.setter
-    def faces(self, faces):
-        self._faces = faces
 
     @property
     def primitives(self) -> List[vm_faces.Face3D]:
@@ -713,8 +688,6 @@ class Solid(Shape):
     """
     A single solid.
     """
-
-    wrapped: TopoDS_Solid
 
     @classmethod
     def make_solid(cls, shell: Shell) -> "Solid":
@@ -1003,16 +976,13 @@ class CompSolid(Shape):
     """
     A single compsolid.
     """
-
-    wrapped: TopoDS_CompSolid
+    pass
 
 
 class Compound(Shape):
     """
     A collection of disconnected solids.
     """
-
-    wrapped: TopoDS_Compound
 
     @staticmethod
     def _make_compound(list_of_shapes: Iterable[TopoDS_Shape]) -> TopoDS_Compound:

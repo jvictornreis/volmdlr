@@ -14,12 +14,11 @@ class TestShell(unittest.TestCase):
         # test init with an ocp object TopoDS_Shell
         self.assertTrue(len(self.shell._get_faces()), 8)
 
-    def test_init2(self):
+    def test_from_faces(self):
         # test init with a list of TopoDS_Face obejcts
-        shell = shapes.Shell(self.shell._get_faces())
+        shell = shapes.Shell.from_faces(faces=self.shell._get_faces())
         self.assertTrue(len(shell._get_faces()), 8)
 
-    def test_init3(self):
         # test init with a list of volmdlr.faces.Face3d objects
         faces_list = []
         for vector in [volmdlr.X3D, volmdlr.Y3D, volmdlr.Z3D]:
@@ -29,7 +28,7 @@ class TestShell(unittest.TestCase):
                 plane = surfaces.Plane3D.from_normal(center, normal)
                 face = faces.PlaneFace3D.from_surface_rectangular_cut(plane, -1, 1, -1, 1)
                 faces_list.append(face)
-        shell = shapes.Shell(faces_list)
+        shell = shapes.Shell.from_faces(faces=faces_list)
         self.assertTrue(len(shell._get_faces()), 8)
 
     def test_volume(self):

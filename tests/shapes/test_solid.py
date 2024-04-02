@@ -22,9 +22,9 @@ class TestSolid(unittest.TestCase):
             face = faces.PlaneFace3D.from_surface_rectangular_cut(plane, -1, 1, -1, 1)
             faces_list.append(face)
 
-    solid1 = shapes.Solid.make_solid(shapes.Shell(faces=faces_list))
+    solid1 = shapes.Solid.make_solid(shapes.Shell.from_faces(faces=faces_list))
     faces2 = [f.translation(volmdlr.Vector3D(1, 1, 1)) for f in faces_list]
-    solid2 = shapes.Solid.make_solid(shapes.Shell(faces=faces2))
+    solid2 = shapes.Solid.make_solid(shapes.Shell.from_faces(faces=faces2))
 
     def test_check_platform(self):
         self.assertIsNone(self.solid1._check_platform())
