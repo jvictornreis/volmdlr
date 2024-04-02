@@ -1,7 +1,9 @@
 import unittest
 import volmdlr
-from volmdlr import shapes, wires, surfaces, faces
 from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
+from OCP.TopoDS import TopoDS_Shell
+from volmdlr import shapes, wires, surfaces, faces
+from volmdlr.models.contours import rim_contour
 
 
 class TestShell(unittest.TestCase):
@@ -64,6 +66,20 @@ class TestShell(unittest.TestCase):
         self.assertAlmostEqual(shell.primitives[0].area(), length * height)
         self.assertAlmostEqual(shell.primitives[1].area(), width * height)
         self.assertFalse(shell.is_closed)
+
+    def test_make_revolve(self):
+
+        y = volmdlr.X3D.random_unit_normal_vector()
+        z = volmdlr.X3D.cross(y)
+        axis_point = 0.5 * volmdlr.X3D.to_point()
+        frame = volmdlr.Frame3D(axis_point, volmdlr.X3D, z, y)
+        wire = rim_contour.to_3d(frame.origin, frame.u, frame.v)
+        revolution_shape = shapes.Shell.make_revolve(shape=wire,
+                                                     axis_point=axis_point, axis=volmdlr.X3D,
+                                                     angle=3.1415, name="Conical rim")
+        self.assertEqual(revolution_shape.name, "Conical rim")
+        self.assertEqual(len(revolution_shape.primitives), 8)
+        self.assertIsInstance(revolution_shape.wrapped, TopoDS_Shell)
 
 
 if __name__ == '__main__':
