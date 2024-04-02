@@ -3095,6 +3095,10 @@ class FullArcMixin(ArcMixin):
         self.start_end = start_end
         ArcMixin.__init__(self, circle=circle, start=start_end, end=start_end, name=name)  # !!! this is dangerous
 
+    def get_start_end_angles(self):
+        """Returns the start and end angle of the arc."""
+        return 0.0, volmdlr.TWO_PI
+
     @property
     def angle(self):
         """Angle of Full Arc. """
@@ -3633,9 +3637,6 @@ class Arc2D(ArcMixin, Edge):
         """
         start_angle = self.angle_start
         end_angle = self.angle_end
-        if not self.is_trigo:
-            start_angle = 2 * math.pi - start_angle
-            end_angle = 2 * math.pi - end_angle
         return plot_data.Arc2D(cx=self.circle.center.x,
                                cy=self.circle.center.y,
                                r=self.circle.radius,
@@ -5669,6 +5670,18 @@ class BezierCurve3D(BSplineCurve3D):
         BSplineCurve3D.__init__(self, degree, control_points,
                                 knot_multiplicity, knotvector,
                                 None, name)
+
+    def get_reverse(self):
+        """
+        Reverses the Bezier's direction by reversing its control points.
+
+        :return: A reversed B-Spline curve.
+        :rtype: :class:`volmdlr.edges.BSplineCurve`.
+        """
+        return self.__class__(
+            degree=self.degree,
+            control_points=self.control_points[::-1]
+        )
 
 
 class Arc3D(ArcMixin, Edge):

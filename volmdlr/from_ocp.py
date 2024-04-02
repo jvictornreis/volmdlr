@@ -223,10 +223,23 @@ def bsplinecurve3d_from_ocp(cls, curve):
     return cls(curve.Degree(), control_points, multiplicities, knots, weigths)
 
 
+def beziercurve3d_from_ocp(cls, curve):
+    """
+    Instanciates a volmdlr BezierCurve3D, from occt object.
+
+    :param cls: volmdlr class to be instanciated.
+    :param curve: OCCT curve.
+    :return: volmdlr BezierCurve3D.
+    """
+    control_points = [volmdlr.Point3D(point.X(), point.Y(), point.Z()) for point in curve.Poles()]
+    return cls(curve.Degree(), control_points)
+
+
 OCCT_TO_VOLMDLR = {"Geom_Line": line3d_from_ocp,
                    "Geom_Circle": circle3d_from_ocp,
                    "Geom_Ellipse": ellipse3d_from_ocp,
                    "Geom_BSplineCurve": bsplinecurve3d_from_ocp,
+                   "Geom_BezierCurve": beziercurve3d_from_ocp,
                    "Geom_Parabola": parabola3d_from_ocp,
                    "Geom_Hyperbola": hyperbola3d_from_ocp,
                    "Geom2d_Line": line2d_from_ocp,
@@ -408,6 +421,12 @@ def surfaceofrevolution_from_ocp(cls, occt_surface, **kwargs):
                                                           occt_curve)
     axis_point = point3d_from_ocp(occt_surface.Axis().Location())
     axis_direction = vector3d_from_ocp(occt_surface.Axis().Direction())
+    if curve.__class__.__name__ == "Circle3D":
+        start_end = curve.center + curve.frame.u * curve.radius
+        curve = curve.trim(point1=start_end, point2=start_end)
+    elif curve.__class__.__name__ == "Ellipse3D":
+        start_end = curve.center + curve.frame.u * curve.major_axis
+        curve = curve.trim(point1=start_end, point2=start_end)
     return cls(curve, axis_point, axis_direction)
 
 
