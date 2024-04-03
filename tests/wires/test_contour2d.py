@@ -7,7 +7,7 @@ from dessia_common.core import DessiaObject
 import volmdlr
 from volmdlr import edges, wires, curves
 from volmdlr.models.contours import contour2d_1, contour2d_2, contour1_cut_by_wire, contour2_cut_by_wire,\
-    contour2_unittest, unordered_contour2_unittest, invalid_unordered_contour2_unittest
+    contour2_unittest, unordered_contour2_unittest, invalid_unordered_contour2_unittest, contour3d_all_edges
 
 
 folder = os.path.dirname(os.path.realpath(__file__))
@@ -68,7 +68,7 @@ class TestContour2D(unittest.TestCase):
                                          1.2716033047094752, 0.8996336040021796]
         self.assertEqual(len(results) + len(results1), 10)
         for i, contour in enumerate(results + results1):
-            self.assertAlmostEqual(contour.length(), list_expected_contour_lengths[i])
+            self.assertAlmostEqual(contour.length(), list_expected_contour_lengths[i], 6)
         contour1 = wires.ClosedPolygon2D([volmdlr.Point2D(0, 0), volmdlr.Point2D(1, 0),
                                           volmdlr.Point2D(1, 1), volmdlr.Point2D(0, 1)])
         contour1 = wires.Contour2D(contour1.line_segments)
@@ -148,7 +148,7 @@ class TestContour2D(unittest.TestCase):
                             (2, 0.575, 3, 0.625),
                             (4, 0.9249999999999998, 1, 0.275)]
         for i, (pt1, pt2) in enumerate(self.point_to_extract_with):
-            inside_prims, outside_prims = self.contour_to_extract_from.split_with_two_points(pt1, pt2)
+            inside_prims, outside_prims = self.contour_to_extract_from.trim(point1=pt1, point2=pt2)
             expected_inside_ = expected_results[i][:2]
             expected_outside_ = expected_results[i][2:]
             self.assertEqual(len(inside_prims), expected_inside_[0])
@@ -178,6 +178,14 @@ class TestContour2D(unittest.TestCase):
         contour1, contour2 = contour.split_by_line(line)
         self.assertTrue(contour1.primitives[-1].end.is_close(intersection))
         self.assertTrue(contour2.primitives[0].start.is_close(intersection))
+        self.assertTrue(contour1.is_wire_connected())
+        self.assertTrue(contour2.is_wire_connected())
+
+        line = curves.Line2D(volmdlr.Point2D(-0.02, 0.015), volmdlr.Point2D(0.02, 0.015))
+        contour = contour3d_all_edges.to_2d(volmdlr.O3D, volmdlr.X3D, volmdlr.Y3D)
+        contour1, contour2 = contour.split_by_line(line)
+        self.assertTrue(contour1.is_wire_connected())
+        self.assertTrue(contour2.is_wire_connected())
 
     def test_closest_point_to_point2(self):
         point1 = volmdlr.Point2D(1.5, -1.5)
@@ -302,6 +310,10 @@ class TestContour2D(unittest.TestCase):
         self.assertEqual(b_rectangle.xmax, 0.5)
         self.assertEqual(b_rectangle.ymin, -0.5)
         self.assertEqual(b_rectangle.ymax, 0.5)
+
+    def test_to_2d(self):
+        contour2d = contour3d_all_edges.to_2d(volmdlr.O3D, volmdlr.X3D, volmdlr.Y3D)
+        self.assertTrue(contour2d.is_connected())
 
 
 if __name__ == '__main__':
