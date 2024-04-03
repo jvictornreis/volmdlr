@@ -8,7 +8,7 @@ import math
 
 import plot_data
 
-from volmdlr.models import casing
+from volmdlr.models.casing import casing
 from volmdlr.primitives3d import Block
 
 casing._check_platform()
@@ -31,4 +31,4 @@ casing.to_stl('casing')
 
 contour = belt.outer_contour2d.plot_data()
 primitive_group = plot_data.PrimitiveGroup(primitives=[contour])
-plot_data.plot_canvas(plot_data_object=primitive_group, debug_mode=True)
+plot_data.plot_canvas(plot_data_object=primitive_group, local=True)

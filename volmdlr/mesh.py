@@ -167,6 +167,12 @@ class TriangularElement(vmw.Triangle):
         vmw.Triangle.__init__(self, *points)
 
     def _to_linear_elements(self):
+        """
+        Converts the triangular element to linear elements.
+
+        :return: The linear elements corresponding to the sides of the triangle.
+        :rtype: List[LinearElement]
+        """
         vec1 = vm.Vector2D(self.points[1].x - self.points[0].x,
                            self.points[1].y - self.points[0].y)
         vec2 = vm.Vector2D(self.points[2].x - self.points[1].x,
@@ -262,6 +268,17 @@ class TriangularElement(vmw.Triangle):
     #             pt.translation(offset, copy=False)
 
     def axial_symmetry(self, line):
+        """
+        Applies axial symmetry to the triangular element with respect to a given line.
+
+        This method creates a mirror image of the triangular element across the specified line.
+        Each point of the triangle is reflected on the other side of the line, resulting in a new triangular element
+        that is a mirror image of the original.
+
+        :param line: The line of symmetry.
+        :return: A new TriangularElement instance that is the mirror image of the original.
+        :rtype: TriangularElement
+        """
         new_points = []
         for point in self.points:
             new_points.append(point.axial_symmetry(line))
@@ -310,6 +327,12 @@ class TriangularElement2D(TriangularElement, vmw.ClosedPolygon2D):
         # vmw.Triangle.__init__(self, points)
 
     def _to_linear_elements(self):
+        """
+        Converts the triangular element to linear elements.
+
+        :return: The linear elements corresponding to the sides of the triangle.
+        :rtype: List[LinearElement]
+        """
         vec1 = vm.Vector2D(self.points[1].x - self.points[0].x,
                            self.points[1].y - self.points[0].y)
         vec2 = vm.Vector2D(self.points[2].x - self.points[1].x,
@@ -357,6 +380,17 @@ class TriangularElement2D(TriangularElement, vmw.ClosedPolygon2D):
         return abs(u_vect.cross(v_vect)) / 2
 
     def axial_symmetry(self, line):
+        """
+        Applies axial symmetry to the triangular element with respect to a given line.
+
+        This method creates a mirror image of the triangular element across the specified line.
+        Each point of the triangle is reflected on the other side of the line, resulting in a new triangular element
+        that is a mirror image of the original.
+
+        :param line: The line of symmetry.
+        :return: A new TriangularElement2D instance that is the mirror image of the original.
+        :rtype: TriangularElement2D
+        """
         new_points = []
         for point in self.points:
             new_points.append(point.axial_symmetry(line))
@@ -364,6 +398,10 @@ class TriangularElement2D(TriangularElement, vmw.ClosedPolygon2D):
 
     def plot(self, ax=None, edge_style: EdgeStyle = EdgeStyle(), point_numbering=False,
              fill=False, fill_color='w'):
+        """
+        Plots a triangular element using matplotlib.
+
+        """
         if ax is None:
             _, ax = plt.subplots()
             ax.set_aspect('equal')
@@ -472,6 +510,10 @@ class TetrahedralElement(DessiaObject):
         return triangular_elements
 
     def plot(self, ax=None, edge_style: EdgeStyle = EdgeStyle()):
+        """
+        Plots a tetrahedral element using matplotlib.
+
+        """
         if ax is None:
             ax = plt.figure().add_subplot(projection='3d')
         for point in self.points:
@@ -626,6 +668,7 @@ class Mesh(DessiaObject):
         DessiaObject.__init__(self, name='')
 
     def _set_nodes_number(self):
+        """Sets number of nodes of the mesh."""
         nodes = set()
         for elements_group in self.elements_groups:
             for element in elements_group.elements:
@@ -637,6 +680,12 @@ class Mesh(DessiaObject):
         return tuple(nodes)
 
     def point_to_element(self, point):
+        """
+        Transform a point to an Element.
+
+        :param point: point to be transformed into an element.
+        :return:
+        """
         for element_group in self.elements_groups:
             element = element_group.point_to_element(point)
             if element is not None:
@@ -644,6 +693,10 @@ class Mesh(DessiaObject):
         return None
 
     def plot(self, ax=None):
+        """
+        Plots a mesh using matplotlib.
+
+        """
         if ax is None:
             if self.elements_groups[0].elements[0].__class__.__name__[-2::] == '2D':
                 _, ax = plt.subplots()
@@ -655,6 +708,11 @@ class Mesh(DessiaObject):
         return ax
 
     def bounding_rectangle(self):
+        """
+        Gets the bounding rectangle for a mesh.
+
+        :return:
+        """
         nodes = self.nodes
         x, y = [], []
         for n in nodes:
@@ -693,6 +751,10 @@ class Mesh(DessiaObject):
     #     return mesh
 
     def nodes_correction(self, reference_index, tol=1e-4):
+        """
+        Apply correction to nodes.
+
+        """
         if not self._nodes_correction:
             nodes_reference = self.elements_groups[reference_index].nodes
             groups = self.elements_groups[:]
@@ -746,6 +808,7 @@ class Mesh(DessiaObject):
         return self._helper_create_mesh(groups)
 
     def _helper_create_mesh(self, groups):
+        """Helper method."""
         mesh = self.__class__(groups)
         mesh.gmsh = self.gmsh
         mesh.set_nodes_correction(self.get_nodes_correction())
@@ -798,6 +861,7 @@ class Mesh(DessiaObject):
         self._gmsh = gmsh_parser
 
     def copy(self):
+        """Copy a mesh."""
         mesh = self.__class__(elements_groups=self.elements_groups[:])
         mesh.set_nodes_correction(self.get_nodes_correction())
         mesh.gmsh = self.gmsh

@@ -4,6 +4,8 @@ Tests for places faces
 import math
 import os
 import unittest
+from OCP.GProp import GProp_GProps
+from OCP.BRepGProp import BRepGProp_Face, BRepGProp  # used for mass calculation
 
 import dessia_common.core
 import dessia_common.core as dc
@@ -78,15 +80,15 @@ class TestPlaneFace3D(unittest.TestCase):
         face_tobe_divided = dc.DessiaObject.from_json(os.path.join(folder, 'face_tobe_divided.json'))
         divided_faces = face_tobe_divided.divide_face([cutting_contour])
         self.assertEqual(len(divided_faces), 4)
-        expected_areas = [0.125, 1.4320458460875176, 0.05704584608751772, 0.125]
+        expected_areas = [1.4320458460875176, 0.05704584608751772, 0.125, 0.125]
         for i, face in enumerate(divided_faces):
             self.assertAlmostEqual(expected_areas[i], face.area())
         source_folder = os.path.join(folder, 'test_planeface_divide_face_json_files')
-        expected_faces_areas = [[0.0055788043593624215, 0.23430978309161565, 0.005578804359415823, 0.0948396741089057],
+        expected_faces_areas = [[0.005578804359415823, 0.0948396741089057, 0.23430978309161565, 0.0055788043593624215],
                                 [0.0855613934860544, 0.032085522557644186, 0.01069517418574345],
                                 [0.002005345159845676, 0.002005345159820638, 0.0033422419331328506,
                                  0.0006684483866419249], [0.3403070659192998, 0.005578804359415823],
-                                [0.0427806967433878, 0.010695174185850198, 0.08556139348605463],
+                                [0.010695174185850198, 0.08556139348605463, 0.0427806967433878],
                                 [0.07754001284661505, 0.002673793546460905]]
         file_names = ['test_face_divide_face5.json', 'test_face_divide_face2.json',
                       'test_planeface3d_divide_face.json', 'test_face_divide_face3.json', 'test_face_divide_face.json',
@@ -116,6 +118,26 @@ class TestPlaneFace3D(unittest.TestCase):
         areas = [f.area() for f in divide_face]
         for area, expected_area in zip(areas, expected_areas):
             self.assertAlmostEqual(area, expected_area, 6)
+
+        #test2
+        expected_areas = [9.258187921229666e-06, 2.288892256789781e-05, 3.151836356237283e-05, 7.207171438556813e-05, 0.00011239889670704745]
+        face, intersections = faces.PlaneFace3D.from_json(os.path.join(folder, 'test_set_operations_new_faces090224.json')).primitives
+        divide_face = face.set_operations_new_faces({face: intersections})
+        self.assertEqual(len(divide_face), 5)
+        areas = sorted(f.area() for f in divide_face)
+        for area, expected_area in zip(areas, expected_areas):
+            self.assertAlmostEqual(area, expected_area, 6)
+
+        # test3
+        face, intersections = dessia_common.core.DessiaObject.from_json(os.path.join(folder, 'test_set_operations_newfaces_290224_2.json')).primitives
+        new_faces = face.set_operations_new_faces({face: intersections})
+        self.assertEqual(len(new_faces), 16)
+        expected_areas = [5.692133753646387e-07, 2.639031298571561e-06, 2.869293706737433e-05, 3.041199297715e-05,
+                          4.68736095968316e-05, 4.876453663771958e-05, 6.3664710650421e-05, 7.169378338336739e-05,
+                          7.207171438446568e-05, 7.842103391230007e-05, 0.00011346658204524696, 0.00020694461203175557,
+                          0.00021496341151687183, 0.0004146105438472248, 0.0004924264511497069, 0.0011945127676743147]
+        for i, area in enumerate(sorted([face.area() for face in new_faces])):
+            self.assertAlmostEqual(area, expected_areas[i])
 
     def test_cylindricalface_intersections(self):
         R = 0.15
@@ -179,6 +201,19 @@ class TestPlaneFace3D(unittest.TestCase):
         planeface, cylface = dessia_common.core.DessiaObject.from_json(
             os.path.join(folder, 'test_planeface_cylindricalface_intersections_none.json')).primitives
         self.assertFalse(planeface.face_intersections(cylface))
+
+        planeface, cylface = dessia_common.core.DessiaObject.from_json(
+            os.path.join(folder, 'test_planeface_cylface_intersections_280224_3.json')).primitives
+        intersections = planeface.face_intersections(cylface)
+        self.assertEqual(len(intersections), 1)
+        self.assertAlmostEqual(intersections[0].length(), 0.0014548006826744287)
+
+        planeface, cylface = dessia_common.core.DessiaObject.from_json(
+            os.path.join(folder, 'test_planeface_cylface_intersections_280224_2.json')).primitives
+        intersections = planeface.face_intersections(cylface)
+        self.assertEqual(len(intersections), 1)
+        self.assertAlmostEqual(intersections[0].length(), 0.008184355121239877)
+
 
     def test_conical_face_intersections(self):
         def get_face(plane, x1=-1, x2=1, y1=-1, y2=1):
@@ -285,6 +320,13 @@ class TestPlaneFace3D(unittest.TestCase):
         face = faces.PlaneFace3D(surface3d, surface2d)
         grid_points = face.grid_points([10, 10])
         self.assertEqual(len(grid_points), 56)
+
+    def test_to_ocp(self):
+        ocp_face = self.face_with_3holes.to_ocp()
+        properties = GProp_GProps()
+        BRepGProp.SurfaceProperties_s(ocp_face, properties)
+        face_area = properties.Mass()
+        self.assertAlmostEqual(face_area, 0.16 - 3 * 0.0128)  # SI
 
 
 if __name__ == '__main__':

@@ -2,7 +2,7 @@
 Showcase of computing the inverse of a voxelization.
 """
 import volmdlr
-from volmdlr.core import VolumeModel
+from volmdlr.model import VolumeModel
 from volmdlr.discrete_representation import MatrixBasedVoxelization
 from volmdlr.primitives3d import Cylinder
 
@@ -20,10 +20,10 @@ voxelization_inverse = ~voxelization  # equivalent to voxelization.inverse()
 voxelization_inverse.name = "Invert voxelization"
 
 # Display the result
-voxelization_cs = voxelization.to_closed_triangle_shell()
+voxelization_cs = voxelization.to_mesh().split_shared_vertices()
 voxelization_cs.color = (1, 0, 0)
 
-voxelization_inverse_cs = voxelization_inverse.to_closed_triangle_shell()
+voxelization_inverse_cs = voxelization_inverse.to_mesh().split_shared_vertices()
 voxelization_inverse_cs.color = (0, 0, 1)
 
 volume_model.primitives.extend([voxelization_cs, voxelization_inverse_cs])

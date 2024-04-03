@@ -4,7 +4,7 @@ Voxelization of a volume model using PointBasedVoxelization.
 In PointBasedVoxelization, voxels are stored as a Set[Tuple[float, float, float]].
 """
 import volmdlr
-from volmdlr.core import VolumeModel
+from volmdlr.model import VolumeModel
 from volmdlr.discrete_representation import PointBasedVoxelization
 from volmdlr.primitives3d import Cylinder, Sphere
 
@@ -19,7 +19,7 @@ volume_model = VolumeModel([sphere, cylinder])
 voxelization = PointBasedVoxelization.from_volume_model(volume_model, VOXEL_SIZE, name="Voxelization")
 
 # Display the result
-voxelization_primitive = voxelization.to_closed_triangle_shell()
+voxelization_primitive = voxelization.to_mesh().split_shared_vertices()
 voxelization_primitive.alpha = 0.5
 voxelization_primitive.color = (1, 0, 0)
 

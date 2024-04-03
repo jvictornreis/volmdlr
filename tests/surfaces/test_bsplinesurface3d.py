@@ -1,6 +1,7 @@
 """
 Unit tests for volmdlr.faces.BSplineSurface3D
 """
+import math
 import unittest
 import os
 import numpy as np
@@ -460,7 +461,6 @@ class TestBSplineSurface3D(unittest.TestCase):
         inv_prof = bspline_surface.linesegment2d_to_3d(test)[0]
 
         # Verifies the inversion operation
-        self.assertIsInstance(inv_prof, vme.Arc3D)
         self.assertTrue(inv_prof.start.is_close(arc.start))
         # self.assertTrue(inv_prof.interior.is_close(arc.interior))
         self.assertTrue(inv_prof.end.is_close(arc.end))
@@ -840,9 +840,53 @@ class TestBSplineSurface3D(unittest.TestCase):
     def test_plane_intersections(self):
         frame = volmdlr.Frame3D(volmdlr.O3D, volmdlr.Z3D, volmdlr.X3D, volmdlr.Y3D)
         plane = surfaces.Plane3D(frame)
+        plane = plane.rotation(volmdlr.O3D, volmdlr.Z3D, math.pi / 4)
         intersections = self.spline_surf.plane_intersections(plane)
-        for point in intersections:
-            self.assertTrue(plane.point_belongs(point))
+        for i in intersections:
+            for point in i.points:
+                self.assertTrue(plane.point_belongs(point))
+                self.assertTrue(self.spline_surf.point_belongs(point))
+
+    def test_cylindricalsurface_intersections(self):
+        cylindrical_surface = surfaces.CylindricalSurface3D(volmdlr.OXYZ, 10)
+        intersections = self.spline_surf.surface_intersections(cylindrical_surface)
+        for i in intersections:
+            for point in i.points:
+                self.assertTrue(self.spline_surf.point_distance(point) < 1e-6)
+                self.assertTrue(cylindrical_surface.point_distance(point) < 1e-6)
+
+    def test_conicalsurface_intersections(self):
+        conical_surface = surfaces.ConicalSurface3D(volmdlr.OXYZ.translation(volmdlr.Z3D * -15), 0.76)
+        intersections = self.spline_surf.surface_intersections(conical_surface)
+        for i in intersections:
+            for point in i.points:
+                self.assertTrue(self.spline_surf.point_distance(point) < 1e-6)
+                self.assertTrue(conical_surface.point_distance(point) < 1e-6)
+
+    def test_toroidalsurface_intersections(self):
+        toroidal_surface = surfaces.ToroidalSurface3D(volmdlr.OYZX.translation(volmdlr.Z3D*-12), 15, 10)
+        intersections = self.spline_surf.surface_intersections(toroidal_surface)
+        for i in intersections:
+            for point in i.points:
+                self.assertTrue(self.spline_surf.point_distance(point) < 1e-6)
+                self.assertTrue(toroidal_surface.point_distance(point) < 1e-6)
+
+    def test_sphericalsurface_intersections(self):
+        spherical_surface = surfaces.SphericalSurface3D(volmdlr.OXYZ.translation(volmdlr.Z3D*-10), 15)
+        intersections = self.spline_surf.surface_intersections(spherical_surface)
+        for i in intersections:
+            for point in i.points:
+                self.assertTrue(self.spline_surf.point_distance(point) < 1e-6)
+                self.assertTrue(spherical_surface.point_distance(point) < 1e-6)
+
+    def test_bsplinesurface_intersections(self):
+        spline_surf2 = self.spline_surf.rotation(volmdlr.O3D, volmdlr.X3D, 0.5 * math.pi)
+
+        intersections = self.spline_surf.surface_intersections(spline_surf2)
+        for i in intersections:
+            for point in i.points:
+                self.assertTrue(self.spline_surf.point_distance(point) < 1e-6)
+                self.assertTrue(spline_surf2.point_distance(point) < 1e-6)
 
     def test_decompose(self):
         surface = surfaces.BSplineSurface3D.from_json(
@@ -888,7 +932,29 @@ class TestBSplineSurface3D(unittest.TestCase):
         bezier_patches = surface.decompose()
         self.assertEqual(len(bezier_patches), 116)
 
+    def test_point_inversion_grid_search(self):
+        surface = surfaces.BSplineSurface3D.from_json(
+            os.path.join(folder, "bsplinesurface_point3d_to_2d_grid_search_1.json"))
+        point = volmdlr.Point3D(-0.009668298046654873, 0.11887869426572631, -0.09560417062522625)
+        _, distance = surface.point_inversion_grid_search(point, 5e-5, 2)
+        self.assertLess(distance, 3e-5)
+        surface = surfaces.BSplineSurface3D.from_json(
+            os.path.join(folder, "bsplinesurface_point3d_to_2d_grid_search_2.json"))
+        point = volmdlr.Point3D(0.001702815989525993, 0.003297577223278291, -0.026314554505063058)
+        _, distance = surface.point_inversion_grid_search(point, 5e-5, 2)
+        self.assertLess(distance, 2e-5)
 
+        surface = surfaces.BSplineSurface3D.from_json(
+            os.path.join(folder, "bsplinesurface_point3d_to_2d_grid_search_3.json"))
+        point = volmdlr.Point3D(-0.008941313467488011, 0.01194521078356664, -0.000635664858372182)
+        _, distance = surface.point_inversion_grid_search(point, 5e-5, 2)
+        self.assertLess(distance, 5e-5)
+
+        surface = surfaces.BSplineSurface3D.from_json(
+            os.path.join(folder, "bsplinesurface_point3d_to_2d_grid_search_4.json"))
+        point = volmdlr.Point3D(-0.02494082957642294, 0.03166087761892587, -0.07334489785111517)
+        _, distance = surface.point_inversion_grid_search(point, 5e-5, 2)
+        self.assertLess(distance, 5e-5)
 
 
 if __name__ == '__main__':

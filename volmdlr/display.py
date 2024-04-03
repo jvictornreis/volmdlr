@@ -3,21 +3,24 @@
 """
 Classes to define mesh for display use. Display mesh do not require good aspect ratios on elements.
 """
-
+# pylint: disable=wrong-import-order
 import warnings
-from typing import List, TypeVar, Union
+from typing import List, Tuple, TypeVar, Union
 
 import numpy as np
-import pyfqmr
-import trimesh
-from dessia_common.core import DessiaObject, PhysicalObject
-from dessia_common.serialization import BinaryFile
-from dessia_common.typings import JsonSerializable
 from numpy.typing import NDArray
 from scipy.spatial import cKDTree
-from trimesh import Trimesh
 
-import volmdlr.edges
+import trimesh
+import volmdlr
+from dessia_common.core import DessiaObject
+from dessia_common.serialization import BinaryFile
+from dessia_common.typings import JsonSerializable
+from trimesh import Trimesh
+from volmdlr.core import Primitive3D
+from volmdlr.edges import LineSegment2D, LineSegment3D
+from volmdlr.geometry import rotation_matrix
+from volmdlr.utils.mesh_helpers import perform_decimation
 
 # TODO: make this module "mesh" as it is not useful only for display
 
@@ -50,7 +53,7 @@ class MeshMixin:
         return self.vertices.shape[1]
 
     # MANIPULATION
-    def resize(self, scale_factor: float) -> "MeshType":
+    def resize(self, scale_factor: float) -> MeshType:
         """
         Resize the Mesh instance by scaling its vertices.
 
@@ -60,9 +63,9 @@ class MeshMixin:
         :return: A new Mesh instance representing the scaled mesh.
         :rtype: MeshType
         """
-        return self.__class__(self.vertices * scale_factor, self.triangles, self.name)
+        return self.__class__(self.vertices * scale_factor, self.triangles, name=self.name)
 
-    def round_vertices(self, decimals: int = 9) -> "MeshType":
+    def round_vertices(self, decimals: int = 9) -> MeshType:
         """
         Round the vertices of the Mesh instance to a given number of decimals.
 
@@ -74,9 +77,9 @@ class MeshMixin:
         """
         rounded_vertices = np.round(self.vertices, decimals)
 
-        return self.__class__(rounded_vertices, self.triangles, self.name)
+        return self.__class__(rounded_vertices, self.triangles, name=self.name)
 
-    def remove_degenerate_triangles(self, tol: float = 0.0) -> "MeshType":
+    def remove_degenerate_triangles(self, tol: float = 0.0) -> MeshType:
         """
         Remove degenerate triangles from the Mesh instance.
 
@@ -108,9 +111,9 @@ class MeshMixin:
         valid_triangles = self.triangles[valid_triangles_mask]
 
         # Create a new Mesh3D instance with non-flat triangles
-        return self.__class__(self.vertices, valid_triangles, self.name)
+        return self.__class__(self.vertices, valid_triangles, name=self.name)
 
-    def merge(self, other: "MeshType", merge_vertices: bool = False, merge_triangles: bool = False) -> "MeshType":
+    def merge(self, other: MeshType, merge_vertices: bool = False, merge_triangles: bool = False) -> MeshType:
         """
         Merge two meshes.
 
@@ -135,7 +138,7 @@ class MeshMixin:
         merged_vertices = np.concatenate((self.vertices, other.vertices))
         merged_triangles = np.concatenate((self.triangles, other.triangles + len(self.vertices)))
 
-        mesh = self.__class__(merged_vertices, merged_triangles, self.name)
+        mesh = self.__class__(merged_vertices, merged_triangles, name=self.name)
 
         if merge_vertices:
             mesh = mesh.merge_vertices()
@@ -144,7 +147,7 @@ class MeshMixin:
 
         return mesh
 
-    def merge_vertices(self) -> "MeshType":
+    def merge_vertices(self) -> MeshType:
         """
         Merge duplicated vertices in the Mesh instance and remap triangles accordingly.
 
@@ -157,9 +160,9 @@ class MeshMixin:
         unique_vertices, indices_map = np.unique(self.vertices, axis=0, return_inverse=True)
         remapped_triangles = indices_map[self.triangles]
 
-        return self.__class__(unique_vertices, remapped_triangles, self.name)
+        return self.__class__(unique_vertices, remapped_triangles, name=self.name)
 
-    def merge_triangles(self) -> "MeshType":
+    def merge_triangles(self) -> MeshType:
         """
         Merge duplicated triangles in the Mesh instance.
 
@@ -173,9 +176,9 @@ class MeshMixin:
         _, unique_triangle_indices = np.unique(sorted_triangles, axis=0, return_index=True)
         unique_triangles = self.triangles[unique_triangle_indices]
 
-        return self.__class__(self.vertices, unique_triangles, self.name)
+        return self.__class__(self.vertices, unique_triangles, name=self.name)
 
-    def split_shared_vertices(self) -> "MeshType":
+    def split_shared_vertices(self) -> MeshType:
         """
         Split the shared vertices between triangles in the Mesh instance.
 
@@ -188,9 +191,9 @@ class MeshMixin:
         unmerged_vertices = self.vertices[self.triangles.ravel()]
         unmerged_triangles = np.arange(len(self.triangles) * 3).reshape(-1, 3)
 
-        return self.__class__(unmerged_vertices, unmerged_triangles, self.name)
+        return self.__class__(unmerged_vertices, unmerged_triangles, name=self.name)
 
-    def __add__(self, other: "MeshType") -> "MeshType":
+    def __add__(self, other: MeshType) -> MeshType:
         """
         Overload the "+" operator to merge two Mesh instances, without mutualization of vertices and triangles.
 
@@ -202,7 +205,7 @@ class MeshMixin:
         """
         return self.merge(other, merge_vertices=False, merge_triangles=False)
 
-    def __or__(self, other: "MeshType") -> "MeshType":
+    def __or__(self, other: MeshType) -> MeshType:
         """
         Overload the "|" operator to merge two Mesh instances, with mutualization of vertices and triangles.
 
@@ -216,8 +219,8 @@ class MeshMixin:
 
     @classmethod
     def from_meshes(
-        cls, meshes: List["MeshType"], merge_vertices: bool = False, merge_triangles: bool = False
-    ) -> "MeshType":
+        cls, meshes: List[MeshType], merge_vertices: bool = False, merge_triangles: bool = False
+    ) -> MeshType:
         """
         Merge two meshes.
 
@@ -306,14 +309,14 @@ class MeshMixin:
         return dict_
 
     @classmethod
-    def dict_to_object(cls, dict_: JsonSerializable, *args, **kwargs) -> "MeshType":
+    def dict_to_object(cls, dict_: JsonSerializable, *args, **kwargs) -> MeshType:
         """Overload of 'dict_to_object' for numpy usage and memory perf."""
 
         vertices = np.array(dict_["vertices"]).reshape(-1, 3)
         triangles = np.array(dict_["triangles"]).reshape(-1, 3)
         name = dict_["name"]
 
-        return cls(vertices, triangles, name)
+        return cls(vertices=vertices, triangles=triangles, name=name)
 
     # HASH AND EQUALITY
     def __hash__(self):
@@ -340,7 +343,7 @@ class Mesh2D(MeshMixin, DessiaObject):
     2D triangle mesh.
     """
 
-    _linesegment_class = volmdlr.edges.LineSegment2D
+    _linesegment_class = LineSegment2D
     _point_class = volmdlr.Point2D
 
     def __init__(self, vertices: NDArray[float], triangles: NDArray[int], name: str = ""):
@@ -370,37 +373,59 @@ class Mesh2D(MeshMixin, DessiaObject):
         return areas.sum()
 
 
-class Mesh3D(MeshMixin, PhysicalObject):
+class Mesh3D(MeshMixin, Primitive3D):
     """
     3D triangle mesh.
     """
 
     # pylint: disable=too-many-public-methods
 
-    _linesegment_class = volmdlr.edges.LineSegment3D
+    _linesegment_class = LineSegment3D
     _point_class = volmdlr.Point3D
 
-    def __init__(self, vertices: NDArray[float], triangles: NDArray[int], name: str = ""):
+    def __init__(
+        self,
+        vertices: NDArray[float],
+        triangles: NDArray[int],
+        color: Tuple[float, float, float] = None,
+        alpha: float = 1.0,
+        name: str = "",
+    ):
         """
         Initialize a 3D mesh.
 
         :param vertices: An array of 3D vertices specifying the 3D mesh.
-        :type vertices: ndarray[float]
         :param triangles: An array of triangles representing the connectivity of the 3D mesh.
-        :type triangles: ndarray[int]
-        :param name: A name for the mesh (default is an empty string).
-        :type name: str, optional
+        :param color: A color for the mesh, optional.
+        :param alpha: An alpha value for the mesh, optional.
+        :param name: A name for the mesh, optional (default is an empty string).
         """
         self.vertices = vertices
         self.triangles = triangles
 
-        self.color = (0.8, 0.8, 0.8)
-        self.alpha = 1.0
-
         self._faces = None
         self._bounding_box = None
 
-        PhysicalObject.__init__(self, name=name)
+        Primitive3D.__init__(self, color=color, alpha=alpha, name=name)
+
+    def triangulation(self) -> "Mesh3D":
+        """Return self as triangulation to enable VolumeModel usage."""
+        return self
+
+    def to_babylon(self):
+        """
+        Convert the mesh to the Babylon.js format.
+
+        This method rounds the vertices to 6 decimal places and returns the mesh in a Babylon.js compatible format.
+        https://doc.babylonjs.com/how_to/custom
+
+        :return: A dictionary representing the mesh in Babylon.js format with 'positions' and 'indices' keys.
+        :rtype: dict
+        """
+        mesh = self.round_vertices(decimals=6)
+        babylon_mesh = {"positions": mesh.vertices.flatten().tolist(), "indices": mesh.triangles.flatten().tolist()}
+
+        return babylon_mesh
 
     @property
     def bounding_box(self):
@@ -415,9 +440,60 @@ class Mesh3D(MeshMixin, PhysicalObject):
 
         return self._bounding_box
 
-    def volmdlr_primitives(self, **kwargs):
-        """Return self as volmdlr_primitives to enable babylonjs method."""
-        return [self]
+    def rotation(self, center: volmdlr.Point3D, axis: volmdlr.Vector3D, angle: float) -> "Mesh3D":
+        """
+        Rotate the mesh around the specified center, axis, and angle.
+
+        :param center: The center point of rotation.
+        :param axis: The rotation axis.
+        :param angle: The rotation angle in radians.
+
+        :return: A new Mesh3D object resulting from the rotation.
+        """
+        rotated_vertices = np.dot(self.vertices - np.array(center), rotation_matrix(axis, angle).T) + np.array(center)
+
+        return self.__class__(
+            vertices=rotated_vertices, triangles=self.triangles, color=self.color, alpha=self.alpha, name=self.name
+        )
+
+    def translation(self, offset: volmdlr.Vector3D):
+        """
+        Translate the mesh by the specified offset.
+
+        :param offset: The translation offset.
+
+        :return: A new Mesh3D object resulting from the translation.
+        """
+        translated_vertices = self.vertices + np.array([offset.x, offset.y, offset.z])
+
+        return self.__class__(
+            vertices=translated_vertices, triangles=self.triangles, color=self.color, alpha=self.alpha, name=self.name
+        )
+
+    def frame_mapping(self, frame: volmdlr.Frame3D, side: str):
+        """
+        Transform a Mesh3D from the current reference frame to a new one.
+
+        side='new': consider the mesh in global frame and transforms in local given frame.
+        side='old': consider the mesh in local given frame and transforms in global frame.
+
+        :param frame: The input reference frame.
+        :param side: Choose between 'old' and 'new'.
+
+        :return: A frame mapped Mesh3D object.
+        """
+        if side == "new":
+            mapped_vertices = np.dot(
+                np.array(frame.inverse_transfer_matrix()), (self.vertices - np.array(frame.origin)).T
+            ).T
+        elif side == "old":
+            mapped_vertices = np.dot(np.array(frame.transfer_matrix()), self.vertices.T).T + np.array(frame.origin)
+        else:
+            raise ValueError("Incorrect value for 'side'.")
+
+        return self.__class__(
+            vertices=mapped_vertices, triangles=self.triangles, color=self.color, alpha=self.alpha, name=self.name
+        )
 
     def area(self) -> float:
         """
@@ -470,10 +546,10 @@ class Mesh3D(MeshMixin, PhysicalObject):
 
         if return_points:
 
-            closest_point_self = volmdlr.Point3D(closest_point_self[0],
-                                                 closest_point_self[1], closest_point_self[2])
-            closest_point_other = volmdlr.Point3D(closest_point_other[0],
-                                                  closest_point_other[1], closest_point_other[2])
+            closest_point_self = volmdlr.Point3D(closest_point_self[0], closest_point_self[1], closest_point_self[2])
+            closest_point_other = volmdlr.Point3D(
+                closest_point_other[0], closest_point_other[1], closest_point_other[2]
+            )
             return min_distance, closest_point_self, closest_point_other
 
         return min_distance
@@ -588,22 +664,11 @@ class Mesh3D(MeshMixin, PhysicalObject):
         """
         # pylint: disable=too-many-arguments
 
-        simplifier = pyfqmr.Simplify()
-        simplifier.setMesh(self.vertices, self.triangles)
-        simplifier.simplify_mesh(
-            target_count=target_count,
-            update_rate=update_rate,
-            aggressiveness=aggressiveness,
-            max_iterations=max_iterations,
-            verbose=verbose,
-            lossless=lossless,
-            threshold_lossless=threshold_lossless,
-            alpha=alpha,
-            K=k,
-            preserve_border=preserve_border,
+        vertices, triangles = perform_decimation(
+            vertices=self.vertices, triangles=self.triangles, target_count=target_count, update_rate=update_rate,
+            aggressiveness=aggressiveness, max_iterations=max_iterations, verbose=verbose, lossless=lossless,
+            threshold_lossless=threshold_lossless, alpha=alpha, k=k, preserve_border=preserve_border,
         )
-
-        vertices, triangles, _ = simplifier.getMesh()
 
         return self.__class__(vertices, triangles)
 
@@ -912,30 +977,6 @@ class Mesh3D(MeshMixin, PhysicalObject):
         :rtype: Trimesh
         """
         return Trimesh(self.vertices, self.triangles)
-
-    def to_babylon(self):
-        """
-        Convert the mesh to the Babylon.js format.
-
-        This method rounds the vertices to 6 decimal places and returns the mesh in a Babylon.js compatible format.
-        https://doc.babylonjs.com/how_to/custom
-
-        :return: A dictionary representing the mesh in Babylon.js format with 'positions' and 'indices' keys.
-        :rtype: dict
-        """
-        mesh = self.round_vertices(decimals=6)
-        babylon_mesh = {"positions": mesh.vertices.flatten().tolist(), "indices": mesh.triangles.flatten().tolist()}
-
-        return babylon_mesh
-
-    def babylon_meshes(self, *args, **kwargs):
-        """Return the mesh data as a dict compatible for Babylon.js."""
-
-        babylon_param = {"alpha": self.alpha, "name": self.name, "color": [*self.color]}
-        babylon_mesh = self.to_babylon()
-        babylon_mesh.update(babylon_param)
-
-        return [babylon_mesh]
 
     # SAVING
     def save_to_stl_file(self, filepath: str, scale_factor: float = 1000.0):

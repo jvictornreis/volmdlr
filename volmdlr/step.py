@@ -18,7 +18,7 @@ import dessia_common.core as dc  # isort: skip
 from dessia_common.files import BinaryFile  # isort: skip
 
 import volmdlr
-import volmdlr.core
+import volmdlr.model
 import volmdlr.edges
 import volmdlr.faces
 import volmdlr.curves
@@ -27,6 +27,7 @@ import volmdlr.wires
 from volmdlr.utils import step_reader
 from volmdlr.utils.step_reader import (STEP_TO_VOLMDLR, STEP_REPRESENTATION_ENTITIES,
                                        WIREFRAME_STEP_REPRESENTATION_ENTITIES)
+from volmdlr import composite_shapes
 
 
 class StepFunction:
@@ -59,6 +60,10 @@ class StepFunction:
 
     @classmethod
     def dict_to_object(cls, dict_, *args, **kwargs):
+        """
+        Create a StepFunction object from a dictionary representation.
+
+        """
         return cls(dict_["id"], dict_["name"], dict_["arg"])
 
     def simplify(self, new_name):
@@ -222,7 +227,7 @@ class Step(dc.DessiaObject):
             arguments = step_reader.step_split_arguments(entity_name_str, function_arg)
 
         for i, argument in enumerate(arguments):
-            if argument[:2] == '(#' and argument[-1] == ')':
+            if argument[:2] == '(#' and argument[-1] == ')' and argument[-2] != ")":
                 arg_list = step_reader.set_to_list(argument)
                 for arg in arg_list:
                     connections.append(int(arg[1:]))
@@ -233,6 +238,7 @@ class Step(dc.DessiaObject):
         return functions, connections
 
     def not_implemented(self):
+        """Helper function?."""
         not_implemented = []
         for _, fun in self.functions.items():
             if fun.name not in STEP_TO_VOLMDLR:
@@ -691,6 +697,7 @@ class Step(dc.DessiaObject):
             self.functions[next_assembly_usage_occurrence].arg.append(f'#{node}')
 
     def instatiate_assembly(self, object_dict):
+        """Instanciates an assembly."""
         assemblies_structure, valid_entities = self.get_assembly_structure()
 
         instantiate_ids = list(assemblies_structure.keys())
@@ -725,7 +732,7 @@ class Step(dc.DessiaObject):
                     if not list_primitives:
                         none_primitives.add(instantiate_id)
 
-                    volmdlr_object = volmdlr.core.Assembly(list_primitives, assembly_positions, assembly_frame,
+                    volmdlr_object = composite_shapes.Assembly(list_primitives, assembly_positions, assembly_frame,
                                                            name=name)
                     object_dict[instantiate_id] = volmdlr_object
                     last_error = None
@@ -737,7 +744,8 @@ class Step(dc.DessiaObject):
                     raise NotImplementedError('Error instantiating assembly') from key
                 if key.args[0] in assembly_shape_ids:
                     instantiate_ids.append(key.args[0])
-
+                else:
+                    object_dict, _ = self._helper_instantiate(key.args[0], object_dict, {}, False)
                 last_error = key.args[0]
         return volmdlr_object
 
@@ -750,7 +758,7 @@ class Step(dc.DessiaObject):
             given class.
         :type show_times: bool
         :return: A volmdlr solid object.
-        :rtype: :class:`volmdlr.core.VolumeModel`
+        :rtype: :class:`volmdlr.model.VolumeModel`
         """
         object_dict = {}
         times = {}
@@ -785,16 +793,17 @@ class Step(dc.DessiaObject):
             print()
 
         if self.root_nodes["NEXT_ASSEMBLY_USAGE_OCCURRENCE"]:
-            return volmdlr.core.VolumeModel([self.instatiate_assembly(object_dict)])
+            return volmdlr.model.VolumeModel([self.instatiate_assembly(object_dict)])
         primitives = []
-        shapes = [object_dict[shape] for shape in shape_representations]
+        shapes = [object_dict[shape] for shape in shape_representations
+                  if self.functions[shape].name in STEP_REPRESENTATION_ENTITIES]
         for shape in shapes:
             if isinstance(shape, list):
                 primitives.extend(shape)
             else:
                 primitives.append(shape)
-        volume_model = volmdlr.core.VolumeModel(primitives)
-        # volume_model = volmdlr.core.VolumeModel([object_dict[shell_node] for shell_node in shell_nodes])
+        volume_model = volmdlr.model.VolumeModel(primitives)
+        # volume_model = volmdlr.model.VolumeModel([object_dict[shell_node] for shell_node in shell_nodes])
         return volume_model
 
     def _helper_instantiate(self, node, object_dict, times, show_times):
@@ -847,6 +856,7 @@ class Step(dc.DessiaObject):
         return points3d[1:]
 
     def plot_data(self):
+        """Network plot_data method for step file entities."""
         graph = self.graph().copy()
 
         graph.remove_nodes_from([stepfunction.id for stepfunction

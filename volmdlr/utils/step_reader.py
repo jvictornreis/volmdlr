@@ -7,6 +7,7 @@ import volmdlr
 import volmdlr.shells as vmshells
 from volmdlr import surfaces
 from volmdlr.geometry import get_transfer_matrix_from_basis
+from volmdlr import composite_shapes
 
 
 def set_to_list(step_set):
@@ -74,9 +75,10 @@ def step_split_arguments(entity_name_str: str, function_arg: str) -> list[str]:
 
     if function_arg[-1] == ";":
         function_arg = function_arg[:-2]
-    pattern = re.compile(r"\([^()]*\)|'[^']*[^,]*',|[^,]+")
+    pattern = re.compile(r'\(.*?\)|[^,]+')
     # if double_brackets_start_indexes:
     if "((" in function_arg:
+        pattern = re.compile(r"\([^()]*\)|'[^']*[^,]*',|[^,]+")
         double_brackets_start_indexes = [match.start() for match in re.finditer(r'\(\(', function_arg)]
         double_brackets_end_indexes = [match.end() for match in re.finditer(r'\)\)', function_arg)]
         starting_index = 0
@@ -88,7 +90,12 @@ def step_split_arguments(entity_name_str: str, function_arg: str) -> list[str]:
         return arguments
 
     # Use regular expression to extract arguments
-    arguments.extend([arg.strip(",") for arg in pattern.findall(function_arg)])
+    for arg in pattern.findall(function_arg):
+        arg = arg.strip(",")
+        if arg == ")":
+            arguments[-1] += arg
+        else:
+            arguments.append(arg)
 
     return arguments
 
@@ -373,10 +380,14 @@ def trimmed_curve(arguments, object_dict, *args, **kwargs):
     curve = object_dict[arguments[1]]
     if arguments[5] == '.PARAMETER.':
         length_conversion_factor = kwargs.get("length_conversion_factor")
-        abscissa1 = _helper_get_parameter_value(arguments[2]) * length_conversion_factor
-        abscissa2 = _helper_get_parameter_value(arguments[3]) * length_conversion_factor
-        point1 = curve.point_at_abscissa(abscissa1)
-        point2 = curve.point_at_abscissa(abscissa2)
+        if isinstance(arguments[2], list):
+            point1 = object_dict[int(arguments[2][0][1:])]
+            point2 = object_dict[int(arguments[3][0][1:])]
+        else:
+            abscissa1 = _helper_get_parameter_value(arguments[2]) * length_conversion_factor
+            abscissa2 = _helper_get_parameter_value(arguments[3]) * length_conversion_factor
+            point1 = curve.point_at_abscissa(abscissa1)
+            point2 = curve.point_at_abscissa(abscissa2)
     else:
         point1 = object_dict[int(arguments[2][0][1:])]
         point2 = object_dict[int(arguments[3][0][1:])]
@@ -387,7 +398,7 @@ def trimmed_curve(arguments, object_dict, *args, **kwargs):
 
 def _helper_get_parameter_value(string):
     # Define a regular expression pattern to match the numerical value
-    pattern = r'\((-?\d+\.\d+)\)'
+    pattern = r"\((-?\d+\.\d+)\)"
 
     # Use re.search to find the match
     match = re.search(pattern, string)
@@ -484,7 +495,7 @@ def shell_based_surface_model(arguments, object_dict, *args, **kwargs):
     if len(arguments[1]) == 1:
         return object_dict[int(arguments[1][0][1:])]
     primitives = [object_dict[int(arg[1:])] for arg in arguments[1]]
-    compound = volmdlr.core.Compound(primitives)
+    compound = composite_shapes.Compound(primitives)
     compound.compound_type = "manifold_solid_brep"
     return compound
 
@@ -526,7 +537,7 @@ def manifold_surface_shape_representation(arguments, object_dict, *args, **kwarg
         primitive = object_dict[int(arg[1:])]
         if isinstance(primitive, vmshells.Shell3D):
             primitives.append(primitive)
-        if isinstance(primitive, volmdlr.core.Compound):
+        if isinstance(primitive, composite_shapes.Compound):
             counter = 0
             for sub_prim in primitive.primitives:
                 if sub_prim:
@@ -535,7 +546,7 @@ def manifold_surface_shape_representation(arguments, object_dict, *args, **kwarg
             primitives.append(primitive)
     if len(primitives) == 1:
         return primitives[0]
-    compound = volmdlr.core.Compound(primitives)
+    compound = composite_shapes.Compound(primitives)
     compound.compound_type = "manifold_solid_brep"
     return compound
 
@@ -559,7 +570,7 @@ def faceted_brep_shape_representation(arguments, object_dict, *args, **kwargs):
                       vmshells.Shell3D):
             shell = object_dict[int(arg[1:])]
             shells.append(shell)
-    return volmdlr.core.Compound(shells)
+    return composite_shapes.Compound(shells)
 
 
 def manifold_solid_brep(arguments, object_dict, *args, **kwargs):
@@ -642,7 +653,7 @@ def advanced_brep_shape_representation(arguments, object_dict, *args, **kwargs):
         primitive = object_dict[int(arg[1:])]
         if isinstance(primitive, vmshells.Shell3D):
             primitives.append(primitive)
-        if isinstance(primitive, volmdlr.core.Compound):
+        if isinstance(primitive, composite_shapes.Compound):
             counter = 0
             for sub_prim in primitive.primitives:
                 sub_prim.name = arguments[0][1:-1] + str(counter)
@@ -650,7 +661,7 @@ def advanced_brep_shape_representation(arguments, object_dict, *args, **kwargs):
             primitives.append(primitive)
     if len(primitives) == 1:
         return primitives[0]
-    compound = volmdlr.core.Compound(primitives)
+    compound = composite_shapes.Compound(primitives)
     compound.compound_type = "manifold_solid_brep"
     return compound
 
@@ -671,7 +682,7 @@ def geometrically_bounded_surface_shape_representation(arguments, object_dict, *
     for arg in arguments[1]:
         primitives.extend(object_dict[int(arg[1:])])
     if len(primitives) > 1:
-        compound = volmdlr.core.Compound(primitives, name=arguments[0])
+        compound = composite_shapes.Compound(primitives, name=arguments[0])
         compound.compound_type = "geometric_curve_set"
         return compound
     return primitives[0]
@@ -695,7 +706,7 @@ def geometrically_bounded_wireframe_shape_representation(arguments, object_dict,
         if isinstance(prim, list):
             primitives.extend(prim)
     if len(primitives) > 1:
-        compound = volmdlr.core.Compound(primitives, name=arguments[0])
+        compound = composite_shapes.Compound(primitives, name=arguments[0])
         compound.compound_type = "geometric_curve_set"
         return compound
     return primitives[0]

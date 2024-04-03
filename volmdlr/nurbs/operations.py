@@ -1,7 +1,7 @@
 """
 Nurbs main operations algorithms.
 """
-
+# cython: language_level=3
 from functools import lru_cache
 import numpy as np
 import volmdlr
@@ -182,6 +182,8 @@ def insert_knot_curve(obj, param, num, **kwargs):
         point_name = "Point" + obj.__class__.__name__[-2:]
         cpts_tmp = [getattr(volmdlr, point_name)(*point) for point in cpts_tmp]
         # Return new spline geometry
+        if obj.__class__.__name__[:-2] == "BezierCurve":
+            return obj.__class__(obj.degree, cpts_tmp)
         return obj.__class__(obj.degree, cpts_tmp, knot_multiplicities, knots, weights)
     return obj
 
@@ -242,6 +244,8 @@ def construct_split_curve(obj, curve1_kv, curve2_kv, knot_span, insertion_count)
 
     knots_2, knot_multiplicities_2 = get_knots_and_multiplicities(curve2_kv)
 
+    if obj.__class__.__name__[:-2] == "BezierCurve":
+        return [obj.__class__(obj.degree, curve1_ctrlpts), obj.__class__(obj.degree, curve2_ctrlpts)]
     # Return the split curves
     return [obj.__class__(obj.degree, curve1_ctrlpts, knot_multiplicities_1, knots_1, curve1_weights),
             obj.__class__(obj.degree, curve2_ctrlpts, knot_multiplicities_2, knots_2, curve2_weights)]
@@ -513,12 +517,12 @@ def extract_surface_curve_u(obj, param, curve_class, **kwargs):
         surf2_ctrlpts, weights = separate_ctrlpts_weights(surf2_ctrlpts)
     control_points = [volmdlr.Point3D(*point) for point in surf2_ctrlpts]
 
-    return curve_class(obj.degree_u, control_points, obj.u_multiplicities, obj.u_knots, weights)
+    return curve_class(obj.degree_v, control_points, obj.v_multiplicities, obj.v_knots, weights)
 
 
 def extract_surface_curve_v(obj, param, curve_class, **kwargs):
     """
-    Extract an isocurve from the surface at the input parametric coordinate on the u-direction.
+    Extract an isocurve from the surface at the input parametric coordinate on the v-direction.
 
     This method works by inserting knots to the surface so that from the new control points created we can extract
     the curve. Under the hood this method performs an incomplete process of splitting the surface.
@@ -560,7 +564,7 @@ def extract_surface_curve_v(obj, param, curve_class, **kwargs):
         surf2_ctrlpts, weights = separate_ctrlpts_weights(surf2_ctrlpts)
     control_points = [volmdlr.Point3D(*point) for point in surf2_ctrlpts]
 
-    return curve_class(obj.degree_v, control_points, obj.v_multiplicities, obj.v_knots, weights)
+    return curve_class(obj.degree_u, control_points, obj.u_multiplicities, obj.u_knots, weights)
 
 
 def split_surface_u(obj, param, **kwargs):
@@ -938,22 +942,22 @@ def link_curves(curves, tol: float = 1e-7, validate: bool = True):
         if not knotvector:
             # get rid of the last superfluous knot to maintain split curve notation
             knotvector += list(curve.knotvector[:-(curve.degree + 1)])
-            cpts += list(curve.ctrlpts)
+            cpts += list(curve.control_points)
             # Process control points
             if curve.rational:
                 wgts += list(curve.weights)
             else:
-                tmp_w = [1.0 for _ in range(len(curve.ctrlpts))]
+                tmp_w = [1.0 for _ in range(len(curve.control_points))]
                 wgts += tmp_w
         else:
             tmp_kv = [pdomain_end + k for k in curve.knotvector[1:-(curve.degree + 1)]]
             knotvector += tmp_kv
-            cpts += list(curve.ctrlpts[1:])
+            cpts += list(curve.control_points[1:])
             # Process control points
             if curve.rational:
                 wgts += list(curve.weights[1:])
             else:
-                tmp_w = [1.0 for _ in range(len(curve.ctrlpts) - 1)]
+                tmp_w = [1.0 for _ in range(len(curve.control_points) - 1)]
                 wgts += tmp_w
 
         pdomain_end += curve.knotvector[-1]

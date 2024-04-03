@@ -17,7 +17,7 @@ import dessia_common.core as dc  # isort: skip
 from dessia_common.files import BinaryFile, StringFile  # isort: skip
 
 import volmdlr as vm
-import volmdlr.core as vmc
+import volmdlr.model
 import volmdlr.faces as vmf
 from volmdlr import shells
 
@@ -298,10 +298,10 @@ class Stl(dc.DessiaObject):
         Convert the STL object to a volume model.
 
         :return: A volume model representation of the STL object.
-        :rtype: vmc.VolumeModel
+        :rtype: volmdlr.model.VolumeModel
         """
         closed_shell = self.to_closed_shell()
-        return vmc.VolumeModel([closed_shell], name=self.name)
+        return volmdlr.model.VolumeModel([closed_shell], name=self.name)
 
     def extract_points(self):
         """
@@ -319,6 +319,12 @@ class Stl(dc.DessiaObject):
 
     # TODO: decide which algorithm to be used (no _BIS)
     def extract_points_bis(self, min_distance: float = 0.001):
+        """
+        Extract the unique points from the STL object, avoiding degenerated triangles.
+
+        :return: A list of unique Point3D objects.
+        :rtype: List[vm.Point3D]
+        """
         points = []
         for triangle in self.triangles:
             distance12 = triangle.point1.point_distance(triangle.point2)

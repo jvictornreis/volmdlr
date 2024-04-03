@@ -126,7 +126,10 @@ def _get_ellipse2d_vertical_line_intersectioons(ellipse2d, line2d):
     """
     x1 = line2d.point1.x
     x2 = x1
-    y1 = ellipse2d.minor_axis * math.sqrt((1 - x1 ** 2 / ellipse2d.major_axis ** 2))
+    delta = 1 - x1 ** 2 / ellipse2d.major_axis ** 2
+    if abs(delta) < 1e-8:
+        delta = 0
+    y1 = ellipse2d.minor_axis * math.sqrt(delta)
     y2 = -y1
     point1 = volmdlr.Point2D(x1, y1)
     point2 = volmdlr.Point2D(x2, y2)
@@ -353,7 +356,7 @@ def conic_intersections(conic1, conic2, abs_tol: float = 1e-6):
             frame_mapped_conic1.frame.u,
             frame_mapped_conic1.frame.v,
         )
-        intersections_2d = conic1_2d.curve_intersections(conic2_2d, abs_tol)
+        intersections_2d = conic1_2d.intersections(conic2_2d, abs_tol)
         if not intersections_2d:
             return []
         local_intersections = []
