@@ -4395,8 +4395,10 @@ class Contour3D(ContourMixin, Wire3D):
         :param offset: translation vector.
         :return: A new translated Contour3D.
         """
-        new_edges = [edge.translation(offset=offset) for edge in self]
-        return Contour3D(primitives=new_edges, name=self.name)
+        memo = {}
+        new_edges = [edge.translation(offset, memo=memo) for edge in
+                     self]
+        return Contour3D(new_edges, self.name)
 
     def frame_mapping(self, frame: volmdlr.Frame3D, side: str):
         """
