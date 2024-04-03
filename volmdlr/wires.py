@@ -209,6 +209,9 @@ class WireMixin:
     _non_serializable_attributes = ['primitive_to_index',
                                     'basis_primitives']
 
+    def __iter__(self):
+        return iter(self.primitives)
+
     def _data_hash(self):
         return sum(hash(e) for e in self.primitives) + len(self.primitives)
 
@@ -853,16 +856,6 @@ class Wire2D(WireMixin, PhysicalObject):
         PhysicalObject.__init__(self, name=name)
         self.index_next = 0
 
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        if self.index_next >= len(self.primitives):
-            self.index_next = 0
-            raise StopIteration
-
-        self.index_next += 1
-        return self.primitives[self.index_next-1]
     def __hash__(self):
         return hash(('wire2d', tuple(self.primitives)))
 
@@ -1396,9 +1389,6 @@ class Wire3D(WireMixin, PhysicalObject):
         self.alpha = alpha
         self.reference_path = reference_path
         PhysicalObject.__init__(self, name=name)
-
-    def __iter__(self):
-        return iter(self.primitives)
 
     def _bounding_box(self):
         """
@@ -2881,6 +2871,9 @@ class ClosedPolygonMixin:
 
     """
 
+    def __iter__(self):
+        return iter(self.points)
+
     def get_lengths(self):
         """
         Gets line segment lengths.
@@ -2998,16 +2991,6 @@ class ClosedPolygon2D(ClosedPolygonMixin, Contour2D):
 
         Contour2D.__init__(self, self.line_segments, name)
 
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        if self.index >= len(self.points):
-            self.index = 0
-            raise StopIteration
-
-        self.index += 1
-        return self.points[self.index-1]
     def copy(self, *args, **kwargs):
         """Returns a copy of the object."""
         points = [point.copy() for point in self.points]
@@ -4541,17 +4524,6 @@ class ClosedPolygon3D(Contour3D, ClosedPolygonMixin):
         self._line_segments = None
         self.index = 0
         Contour3D.__init__(self, self.line_segments, name)
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        if self.index >= len(self.points):
-            self.index = 0
-            raise StopIteration
-
-        self.index += 1
-        return self.points[self.index-1]
 
     def get_line_segments(self):
         """Get polygon lines."""

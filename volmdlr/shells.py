@@ -125,15 +125,7 @@ class Shell3D(volmdlr.core.CompositePrimitive3D):
                                                    reference_path=reference_path, name=name)
 
     def __iter__(self):
-        return self
-
-    def __next__(self):
-        if self.index >= len(self.faces):
-            self.index = 0
-            raise StopIteration
-
-        self.index += 1
-        return self.faces[self.index-1]
+        return iter(self.faces)
 
     def _data_hash(self):
         return len(self.faces)  # sum(face._data_hash() for face in self.faces)
