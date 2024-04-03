@@ -29,7 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Ellipse2D: tangent_points
 
 #### edges.py
-- 
+- BSplineCurve: arc_to_nurbs and arc_to_nurbs_parameters
+
 #### wires.py
 - Transforms the wires into iterables
 
@@ -42,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Face3D: to_ocp.
 #### shells.py
 - Transforms the shells into iterables
+
 ### Fixed
 
 - Updates CONTRIBUTING.md.
