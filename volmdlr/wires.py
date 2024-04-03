@@ -31,7 +31,7 @@ import volmdlr.geometry
 from volmdlr import curves, edges, PATH_ROOT
 from volmdlr.core_compiled import polygon_point_belongs, points_in_polygon
 from volmdlr.core import EdgeStyle
-from volmdlr import from_ocp
+from volmdlr import from_ocp, to_ocp
 from volmdlr.utils import step_writer
 
 
@@ -196,7 +196,8 @@ OCCT_TO_VOLMDLR = {"Geom_Line": curves.Line3D,
                    "Geom_Ellipse": curves.Ellipse3D,
                    "Geom_Parabola": curves.Parabola3D,
                    "Geom_Hyperbola": curves.Hyperbola3D,
-                   "Geom_BSplineCurve": edges.BSplineCurve3D}
+                   "Geom_BSplineCurve": edges.BSplineCurve3D,
+                   "Geom_BezierCurve": edges.BezierCurve3D}
 
 
 class WireMixin:
@@ -751,6 +752,12 @@ class WireMixin:
         if not cls(primitives=list_edges).is_ordered(1e-4):
             print("Contour not ordered")
         return cls(primitives=list_edges)
+
+    def to_ocp(self):
+        """
+        Returns an OCP shape equivalent to the volmdlr object.
+        """
+        return to_ocp.contour3d_to_ocp(self)
 
 
 class EdgeCollection3D(WireMixin, PhysicalObject):
@@ -1387,20 +1394,11 @@ class Wire3D(WireMixin, PhysicalObject):
         self.primitives = primitives
         self.color = color
         self.alpha = alpha
-        self.index = 0
         self.reference_path = reference_path
         PhysicalObject.__init__(self, name=name)
 
     def __iter__(self):
-        return self
-
-    def __next__(self):
-        if self.index >= len(self.primitives):
-            self.index = 0
-            raise StopIteration
-
-        self.index += 1
-        return self.primitives[self.index-1]
+        return iter(self.primitives)
 
     def _bounding_box(self):
         """
