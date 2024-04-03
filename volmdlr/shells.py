@@ -118,7 +118,6 @@ class Shell3D(volmdlr.core.CompositePrimitive3D):
         self._vertices_graph = None
         self._vertices_points = None
         self._shell_octree_decomposition = None
-        self.index = 0
 
         volmdlr.core.CompositePrimitive3D.__init__(self,
                                                    primitives=faces, color=color, alpha=alpha,

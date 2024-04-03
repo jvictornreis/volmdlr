@@ -31,7 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### edges.py
 - 
 #### wires.py
-- 
+- Transforms the wires into iterables
+
 #### surfaces.py
 - SphericalSurface3D: is_coincident
 - BSplineSurface3D: is_coincident
@@ -40,83 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Face3D: from_contours3d (add abs_tol as parameter)
 - Face3D: to_ocp.
 #### shells.py
-- 
-### Fixed
-
-- Updates CONTRIBUTING.md.
-
-#### curves.py
-- 
-#### edges.py
-- Edge: delete_shared_section (use abs_tol)
-- Bspline: get_shared_section (update abs_tol for is_shared_section_possible)
-- Arc2D: plot_data
-
-#### wires.py
-- 
-#### surfaces.py
-- cylindricalSurface3D: fix tangent plane intersections.
-
-#### faces.py
-- SphericalFace3D: get_bounding_box
-- planeface: Sphericalface intersections
-
-#### shells.py
-- 
-
-### Changed
-- Force wires to share same points between two edges.
-- increase code Quality
-
-#### curves.py
-- Ellipse2D: point_distance optimization
-
-### Unittests
-- Ellipse2D: test to the news functions
-
-## v0.17.0 [Unreleased]
-### New Features
-
-- occt integration: surface intersections.
-- Commented some surface intersectios methods.
-- fix missing docstrings
-
-- made wires classes and shells classes iterables
-- new module: shapes.py
-- New module model.py to hold VolumeModel object.
-
-#### shapes.py
-- Shape: volume, bounding_box
-- Shape: add boolean operations: subtraction, union, intersection
-- Shell: add 3 different instanciation methods, 
-- Shell constructors: make_extrusion, make_wedge
-- Solid constructors: make_extrusion, make_extrusion_from_frame_and_wires, make_wedge
-- Shape: to_dict, dict_to_object, to_brep, from_brep, from_brep_stream, to_brep_stream, 
-- Solid: make_box, make_cone, make_cylinder, make_torus, make_sphere methods.
-
-#### core.py
-- VolumeModel: from_step using OCP step reader
-- move VolumeModel from core.py to model.py.
-
-#### display.py
-- Mesh3D: rotation / translation / frame_mapping
-
-#### curves.py
-- Ellipse2D: tangent_points
-
-#### edges.py
-- 
-#### wires.py
-- 
-#### surfaces.py
-- SphericalSurface3D: is_coincident
-- BSplineSurface3D: is_coincident
-
-#### faces.py
-- Face3D: from_contours3d (add abs_tol as parameter)
-- Face3D: to_ocp.
-#### shells.py
-- 
+- Transforms the shells into iterables
 ### Fixed
 
 - Updates CONTRIBUTING.md.

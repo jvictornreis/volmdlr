@@ -854,7 +854,6 @@ class Wire2D(WireMixin, PhysicalObject):
         self.primitives = primitives
         self.reference_path = reference_path
         PhysicalObject.__init__(self, name=name)
-        self.index_next = 0
 
     def __hash__(self):
         return hash(('wire2d', tuple(self.primitives)))
@@ -2097,7 +2096,6 @@ class Contour2D(ContourMixin, Wire2D):
         self._edge_polygon = None
         self._polygon_100_points = None
         self._area = None
-        self.index = 0
 
     def copy(self, deep=True, memo=None):
         """
@@ -2987,7 +2985,6 @@ class ClosedPolygon2D(ClosedPolygonMixin, Contour2D):
     def __init__(self, points: List[volmdlr.Point2D], name: str = ''):
         self.points = points
         self._line_segments = None
-        self.index = 0
 
         Contour2D.__init__(self, self.line_segments, name)
 
@@ -4522,8 +4519,10 @@ class ClosedPolygon3D(Contour3D, ClosedPolygonMixin):
     def __init__(self, points: List[volmdlr.Point3D], name: str = ''):
         self.points = points
         self._line_segments = None
-        self.index = 0
         Contour3D.__init__(self, self.line_segments, name)
+
+    def __iter__(self):
+        return iter(self.points)
 
     def get_line_segments(self):
         """Get polygon lines."""
