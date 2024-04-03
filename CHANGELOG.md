@@ -32,7 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - BSplineCurve: arc_to_nurbs and arc_to_nurbs_parameters
 
 #### wires.py
-- 
+- translation: Add memo dictionary to keep data sctructure when perfoming translations.
+
 #### surfaces.py
 - SphericalSurface3D: is_coincident
 - BSplineSurface3D: is_coincident
